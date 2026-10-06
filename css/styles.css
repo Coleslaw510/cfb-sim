@@ -485,3 +485,21 @@ table.rank-table tr.mine { background: #f3f7ff; }
   .history-row .hc::before { content: "Conf "; color: var(--muted); font-weight: 500; }
   .history-row .hk::before { content: "Rank "; color: var(--muted); font-weight: 500; }
 }
+
+/* Class year badge (FR/SO/JR/SR/RS) */
+.class-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #3d4a5c;
+  background: #e8eef6;
+  border: 1px solid #d0dae8;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+.depth-grid .class-badge { margin-left: 6px; }
+.stats-table .class-badge { margin-left: 0; }

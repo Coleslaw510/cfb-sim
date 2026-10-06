@@ -37,19 +37,47 @@
     return f + " " + l;
   }
 
-  /** Resolve a depth-chart player name; fall back to generic. */
-  function depthName(roster, pos, slot, rng) {
+  /** Normalize ESPN class year (FR/SO/JR/SR/RS…). */
+  function normalizeClass(c) {
+    if (!c) return "";
+    const u = String(c).trim().toUpperCase();
+    if (/^(FR|SO|JR|SR|RS)$/.test(u)) return u;
+    if (u.startsWith("RS-") || u.startsWith("RS ")) {
+      const rest = u.replace(/^RS[\s-]+/, "");
+      if (/^(FR|SO|JR|SR)$/.test(rest)) return "RS-" + rest;
+      return "RS";
+    }
+    if (u.includes("FRESH")) return "FR";
+    if (u.includes("SOPH")) return "SO";
+    if (u.includes("JUNIOR")) return "JR";
+    if (u.includes("SENIOR")) return "SR";
+    if (u.includes("REDSHIRT")) return "RS";
+    return u.slice(0, 6);
+  }
+
+  /** Resolve a depth-chart player { name, class }; fall back to generic. */
+  function depthPlayer(roster, pos, slot, rng) {
     if (roster && roster.depth && roster.players) {
       const idxs = roster.depth[pos] || [];
-      if (idxs[slot] != null && roster.players[idxs[slot]]) {
-        return roster.players[idxs[slot]].n;
+      const tryIdx = (i) => {
+        const p = roster.players[i];
+        if (!p) return null;
+        return { name: p.n, class: normalizeClass(p.c) };
+      };
+      if (idxs[slot] != null) {
+        const hit = tryIdx(idxs[slot]);
+        if (hit) return hit;
       }
-      // try next slots if preferred missing
       for (let i = 0; i < idxs.length; i++) {
-        if (roster.players[idxs[i]]) return roster.players[idxs[i]].n;
+        const hit = tryIdx(idxs[i]);
+        if (hit) return hit;
       }
     }
-    return pickName(rng);
+    return { name: pickName(rng), class: "" };
+  }
+
+  function depthName(roster, pos, slot, rng) {
+    return depthPlayer(roster, pos, slot, rng).name;
   }
 
   function expectedPoints(off, def, homeBoost) {
@@ -156,12 +184,12 @@
     awayY.timeOfPoss = formatTOP(60 - homePossMin);
 
     function leadersFor(roster, yds, pts) {
-      const qb = depthName(roster, "QB", 0, rng);
-      const rb1 = depthName(roster, "RB", 0, rng);
-      const rb2 = depthName(roster, "RB", 1, rng);
-      const wr1 = depthName(roster, "WR", 0, rng);
-      const wr2 = depthName(roster, "WR", 1, rng);
-      const te1 = depthName(roster, "TE", 0, rng);
+      const qb = depthPlayer(roster, "QB", 0, rng);
+      const rb1 = depthPlayer(roster, "RB", 0, rng);
+      const rb2 = depthPlayer(roster, "RB", 1, rng);
+      const wr1 = depthPlayer(roster, "WR", 0, rng);
+      const wr2 = depthPlayer(roster, "WR", 1, rng);
+      const te1 = depthPlayer(roster, "TE", 0, rng);
       const passTds = clamp(Math.round(pts / 10 + (rng() - 0.4)), 0, 5);
       const rushTds = Math.max(0, Math.round(pts / 14) - Math.floor(passTds * 0.4));
       const rush1 = Math.round(yds.rushYds * (0.55 + rng() * 0.2));
@@ -169,16 +197,16 @@
       const recYds = Math.round(yds.passYds * (0.28 + rng() * 0.15));
       const recYds2 = Math.round(yds.passYds * (0.18 + rng() * 0.1));
       // Prefer WR; occasionally TE for receiving leader
-      const recName = rng() < 0.18 ? te1 : wr1;
+      const recP = rng() < 0.18 ? te1 : wr1;
       return {
-        passing: { name: qb, comp: yds.completions, att: yds.passAtt, yds: yds.passYds, td: passTds, int: yds.interceptions },
+        passing: { name: qb.name, class: qb.class, comp: yds.completions, att: yds.passAtt, yds: yds.passYds, td: passTds, int: yds.interceptions },
         rushing: [
-          { name: rb1, att: Math.round(yds.rushAtt * 0.55), yds: rush1, td: Math.min(rushTds, 2) },
-          { name: rb2, att: Math.max(3, yds.rushAtt - Math.round(yds.rushAtt * 0.55) - 4), yds: Math.max(0, rush2), td: Math.max(0, rushTds - 2) },
+          { name: rb1.name, class: rb1.class, att: Math.round(yds.rushAtt * 0.55), yds: rush1, td: Math.min(rushTds, 2) },
+          { name: rb2.name, class: rb2.class, att: Math.max(3, yds.rushAtt - Math.round(yds.rushAtt * 0.55) - 4), yds: Math.max(0, rush2), td: Math.max(0, rushTds - 2) },
         ],
         receiving: [
-          { name: recName, rec: clamp(Math.round(3 + rng() * 6), 2, 10), yds: recYds, td: Math.min(passTds, 2) },
-          { name: wr2, rec: clamp(Math.round(2 + rng() * 5), 1, 8), yds: recYds2, td: Math.max(0, Math.min(passTds - 1, 1)) },
+          { name: recP.name, class: recP.class, rec: clamp(Math.round(3 + rng() * 6), 2, 10), yds: recYds, td: Math.min(passTds, 2) },
+          { name: wr2.name, class: wr2.class, rec: clamp(Math.round(2 + rng() * 5), 1, 8), yds: recYds2, td: Math.max(0, Math.min(passTds - 1, 1)) },
         ],
       };
     }
@@ -400,8 +428,8 @@
 
   /**
    * Aggregate season player stats from box-score leaders.
-   * Tracks games played (gp) and exposes per-game rates (ypg / tdpg).
-   * FBS leaders are sorted by YPG with min-game / attempt qualifiers.
+   * Tracks games played (gp) and class year when present.
+   * FBS leaders are sorted by season totals (yards) with min-game / attempt qualifiers.
    */
   function accumulateSeasonStats(results, teamIds) {
     const byTeam = {};
@@ -413,8 +441,9 @@
     };
     const addPass = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, gp: 0, comp: 0, att: 0, yds: 0, td: 0, int: 0 };
+      const row = bucket[p.name] || { name: p.name, class: "", gp: 0, comp: 0, att: 0, yds: 0, td: 0, int: 0 };
       row.gp += 1;
+      if (!row.class && p.class) row.class = normalizeClass(p.class);
       row.comp += p.comp || 0;
       row.att += p.att || 0;
       row.yds += p.yds || 0;
@@ -424,8 +453,9 @@
     };
     const addRush = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, gp: 0, att: 0, yds: 0, td: 0 };
+      const row = bucket[p.name] || { name: p.name, class: "", gp: 0, att: 0, yds: 0, td: 0 };
       row.gp += 1;
+      if (!row.class && p.class) row.class = normalizeClass(p.class);
       row.att += p.att || 0;
       row.yds += p.yds || 0;
       row.td += p.td || 0;
@@ -433,8 +463,9 @@
     };
     const addRec = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, gp: 0, rec: 0, yds: 0, td: 0 };
+      const row = bucket[p.name] || { name: p.name, class: "", gp: 0, rec: 0, yds: 0, td: 0 };
       row.gp += 1;
+      if (!row.class && p.class) row.class = normalizeClass(p.class);
       row.rec += p.rec || 0;
       row.yds += p.yds || 0;
       row.td += p.td || 0;
@@ -495,10 +526,10 @@
       });
     }
 
-    function leadersByYpg(map, kind) {
+    function leadersByTotals(map, kind) {
       const all = toSorted(map, "yds");
       return qualify(all, kind).sort(
-        (a, b) => (b.ypg || 0) - (a.ypg || 0) || (b.yds || 0) - (a.yds || 0) || (b.td || 0) - (a.td || 0)
+        (a, b) => (b.yds || 0) - (a.yds || 0) || (b.td || 0) - (a.td || 0) || (b.gp || 0) - (a.gp || 0)
       );
     }
 
@@ -528,17 +559,17 @@
         receiving: { minGames: minGamesFor(recPool), minRecPerGame: 2 },
       },
       leaders: {
-        passing: leadersByYpg(fbsLeaders.passing, "pass"),
-        rushing: leadersByYpg(fbsLeaders.rushing, "rush"),
-        receiving: leadersByYpg(fbsLeaders.receiving, "rec"),
+        passing: leadersByTotals(fbsLeaders.passing, "pass"),
+        rushing: leadersByTotals(fbsLeaders.rushing, "rush"),
+        receiving: leadersByTotals(fbsLeaders.receiving, "rec"),
       },
       teamLeaders(teamId) {
         const b = byTeam[teamId] || { passing: {}, rushing: {}, receiving: {} };
         return {
-          // Team view: lead with YPG, light floor so empty rows stay out
-          passing: toSorted(b.passing, "yds").filter((p) => (p.att || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
-          rushing: toSorted(b.rushing, "yds").filter((p) => (p.att || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
-          receiving: toSorted(b.receiving, "yds").filter((p) => (p.rec || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
+          // Team view: season totals (yards), light floor so empty rows stay out
+          passing: toSorted(b.passing, "yds").filter((p) => (p.att || 0) > 0),
+          rushing: toSorted(b.rushing, "yds").filter((p) => (p.att || 0) > 0),
+          receiving: toSorted(b.receiving, "yds").filter((p) => (p.rec || 0) > 0),
         };
       },
     };
@@ -853,6 +884,558 @@
     };
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* Multi-year schedule generation (season 2+)                          */
+  /* ------------------------------------------------------------------ */
+
+  /** Target conference games per team from real 2026 slate modes. */
+  const CONF_GAME_TARGETS = {
+    "151": 8, // American
+    "1": 9,   // ACC
+    "4": 9,   // Big 12
+    "5": 9,   // Big Ten
+    "12": 8,  // CUSA
+    "18": 0,  // Independents
+    "15": 8,  // MAC
+    "17": 8,  // Mountain West
+    "9": 7,   // Pac-12
+    "8": 9,   // SEC
+    "37": 8,  // Sun Belt
+  };
+
+  const TOTAL_GAMES_TARGET = 12;
+
+  /**
+   * Protected rivalry pairs (shortName aliases). Applied when both teams exist.
+   * Same-conference rivals count toward conf games; cross-conf count as non-conf.
+   * `neutral: true` → neutral-site game.
+   */
+  const RIVALRY_DEFS = [
+    { a: "Michigan", b: "Ohio State" },
+    { a: "Alabama", b: "Auburn" },
+    { a: "Iowa", b: "Iowa State" },
+    { a: "Texas", b: "Oklahoma", neutral: true },
+    { a: "USC", b: "UCLA" },
+    { a: "Georgia", b: "Florida", neutral: true },
+    { a: "Michigan", b: "Michigan State" },
+    { a: "Ohio State", b: "Michigan State" },
+    { a: "Penn State", b: "Ohio State" },
+    { a: "Penn State", b: "Michigan State" },
+    { a: "Clemson", b: "South Carolina" },
+    { a: "Florida", b: "Florida State" },
+    { a: "Georgia", b: "Georgia Tech" },
+    { a: "Notre Dame", b: "USC" },
+    { a: "Notre Dame", b: "Navy" },
+    { a: "Notre Dame", b: "Stanford" },
+    { a: "Texas", b: "Texas A&M" },
+    { a: "Oklahoma", b: "Oklahoma State" },
+    { a: "Ole Miss", b: "Mississippi State" },
+    { a: "LSU", b: "Alabama" },
+    { a: "LSU", b: "Florida" },
+    { a: "Tennessee", b: "Alabama" },
+    { a: "Auburn", b: "Georgia" },
+    { a: "Kentucky", b: "Louisville" },
+    { a: "Oregon", b: "Oregon State" },
+    { a: "Washington", b: "Washington State" },
+    { a: "Wisconsin", b: "Minnesota" },
+    { a: "Nebraska", b: "Iowa" },
+    { a: "Indiana", b: "Purdue" },
+    { a: "Illinois", b: "Northwestern" },
+    { a: "BYU", b: "Utah" },
+    { a: "Utah", b: "Colorado" },
+    { a: "Arizona", b: "Arizona St" },
+    { a: "Arizona", b: "Arizona State" },
+    { a: "Kansas", b: "Kansas State" },
+    { a: "Missouri", b: "Kansas" },
+    { a: "Baylor", b: "TCU" },
+    { a: "Texas Tech", b: "Texas" },
+    { a: "Virginia", b: "Virginia Tech" },
+    { a: "North Carolina", b: "NC State" },
+    { a: "North Carolina", b: "Duke" },
+    { a: "Stanford", b: "California" },
+    { a: "Pitt", b: "West Virginia" },
+    { a: "Miami", b: "Florida State" },
+    { a: "Boise St", b: "Fresno St" },
+    { a: "Army", b: "Navy", neutral: true },
+    { a: "Army", b: "Air Force" },
+    { a: "Navy", b: "Air Force" },
+    { a: "Cincinnati", b: "Louisville" },
+    { a: "Memphis", b: "UCF" },
+    { a: "SMU", b: "Houston" },
+    { a: "Colorado", b: "Nebraska" },
+    { a: "Florida State", b: "Clemson" },
+    { a: "Oregon", b: "Washington" },
+    { a: "Michigan", b: "Penn State" },
+    { a: "Ohio State", b: "Wisconsin" },
+    { a: "Alabama", b: "Georgia" },
+    { a: "Texas A&M", b: "LSU" },
+    { a: "South Carolina", b: "Georgia" },
+    { a: "Wake Forest", b: "Duke" },
+    { a: "Boston College", b: "Syracuse" },
+    { a: "Rutgers", b: "Maryland" },
+    { a: "UConn", b: "UCF" },
+  ];
+
+  const NAME_ALIASES = {
+    "florida state": ["Florida State", "Florida St"],
+    "michigan state": ["Michigan State", "Michigan St"],
+    "oklahoma state": ["Oklahoma State", "Oklahoma St"],
+    "mississippi state": ["Mississippi State", "Mississippi St"],
+    "oregon state": ["Oregon State", "Oregon St"],
+    "washington state": ["Washington State", "Washington St"],
+    "arizona state": ["Arizona State", "Arizona St"],
+    "kansas state": ["Kansas State", "Kansas St"],
+    "florida atlantic": ["Florida Atlantic", "FAU"],
+    "cal": ["California", "Cal"],
+  };
+
+  function buildNameIndex(teams, fbsIds) {
+    const idx = {};
+    for (const id of fbsIds) {
+      const t = teams[id];
+      if (!t) continue;
+      const keys = [t.shortName, t.name, t.abbreviation, t.displayName]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase());
+      for (const k of keys) idx[k] = id;
+    }
+    return idx;
+  }
+
+  function resolveTeamId(nameIndex, name) {
+    if (!name) return null;
+    const key = String(name).toLowerCase();
+    if (nameIndex[key]) return nameIndex[key];
+    const aliases = NAME_ALIASES[key] || [name];
+    for (const a of aliases) {
+      const hit = nameIndex[String(a).toLowerCase()];
+      if (hit) return hit;
+    }
+    // partial shortName match
+    for (const [k, id] of Object.entries(nameIndex)) {
+      if (k === key || k.startsWith(key + " ") || key.startsWith(k + " ")) return id;
+    }
+    return null;
+  }
+
+  function pairKey(a, b) {
+    return a < b ? a + "|" + b : b + "|" + a;
+  }
+
+  /**
+   * Generate a full FBS regular-season slate for `year`.
+   * Season 1 uses ESPN data; later seasons call this.
+   */
+  function generateSeasonSchedule(opts) {
+    const teams = opts.teams;
+    const fbsIds = opts.fbsTeamIds.slice();
+    const year = opts.year || 2027;
+    const seed = opts.seasonSeed != null ? opts.seasonSeed : hashSeed(String(year));
+    const rng = mulberry32(seed >>> 0);
+    const nameIndex = buildNameIndex(teams, fbsIds);
+    const fbsSet = new Set(fbsIds);
+
+    const fcsPool = Object.keys(teams).filter((id) => !fbsSet.has(id));
+    // shuffle FCS pool
+    for (let i = fcsPool.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = fcsPool[i];
+      fcsPool[i] = fcsPool[j];
+      fcsPool[j] = tmp;
+    }
+    let fcsCursor = 0;
+
+    // Per-team bookkeeping
+    const confNeed = {};
+    const totalNeed = {};
+    const opponents = {}; // tid -> Set
+    const homeCount = {};
+    const awayCount = {};
+    for (const id of fbsIds) {
+      const confId = teams[id].conferenceId;
+      confNeed[id] = CONF_GAME_TARGETS[confId] != null ? CONF_GAME_TARGETS[confId] : 8;
+      totalNeed[id] = TOTAL_GAMES_TARGET;
+      opponents[id] = new Set();
+      homeCount[id] = 0;
+      awayCount[id] = 0;
+    }
+
+    /** Raw edges before week assignment: { homeId, awayId, neutralSite, isConf, isRivalry } */
+    const edges = [];
+    const edgeSet = new Set();
+
+    function isFbs(id) {
+      return fbsSet.has(id);
+    }
+
+    function canPair(a, b, asConf) {
+      if (a === b) return false;
+      const aF = isFbs(a);
+      const bF = isFbs(b);
+      if (!aF && !bF) return false;
+      if (aF && opponents[a].has(b)) return false;
+      if (bF && opponents[b].has(a)) return false;
+      if (aF && totalNeed[a] <= 0) return false;
+      if (bF && totalNeed[b] <= 0) return false;
+      if (asConf) {
+        if (!aF || !bF) return false;
+        if (confNeed[a] <= 0 || confNeed[b] <= 0) return false;
+      }
+      return true;
+    }
+
+    function addEdge(homeId, awayId, meta) {
+      const a = homeId;
+      const b = awayId;
+      const key = pairKey(a, b);
+      if (edgeSet.has(key)) return false;
+      if (!canPair(a, b, meta.isConf)) return false;
+      edgeSet.add(key);
+      if (isFbs(a)) {
+        opponents[a].add(b);
+        totalNeed[a]--;
+        if (meta.isConf) confNeed[a]--;
+        if (!meta.neutralSite) homeCount[a]++;
+      }
+      if (isFbs(b)) {
+        opponents[b].add(a);
+        totalNeed[b]--;
+        if (meta.isConf) confNeed[b]--;
+        if (!meta.neutralSite) awayCount[b]++;
+      }
+      edges.push({
+        homeId,
+        awayId,
+        neutralSite: !!meta.neutralSite,
+        isConf: !!meta.isConf,
+        isRivalry: !!meta.isRivalry,
+      });
+      return true;
+    }
+
+    function pickHome(a, b, preferNeutral) {
+      if (preferNeutral) return { homeId: a, awayId: b, neutralSite: true };
+      // Balance home/away; flip by year seed for variety
+      const aHomeBias = homeCount[a] - awayCount[a];
+      const bHomeBias = homeCount[b] - awayCount[b];
+      let aHome;
+      if (aHomeBias < bHomeBias - 0.5) aHome = true;
+      else if (bHomeBias < aHomeBias - 0.5) aHome = false;
+      else aHome = (hashSeed(pairKey(a, b) + "|" + year) % 2) === 0;
+      return aHome
+        ? { homeId: a, awayId: b, neutralSite: false }
+        : { homeId: b, awayId: a, neutralSite: false };
+    }
+
+    // 1) Same-conference protected rivalries first (count toward conf games)
+    const crossConfRivalries = [];
+    for (const def of RIVALRY_DEFS) {
+      const a = resolveTeamId(nameIndex, def.a);
+      const b = resolveTeamId(nameIndex, def.b);
+      if (!a || !b || a === b) continue;
+      if (!fbsSet.has(a) || !fbsSet.has(b)) continue;
+      const sameConf =
+        teams[a].conferenceId === teams[b].conferenceId &&
+        teams[a].conferenceId !== "18";
+      if (!sameConf) {
+        crossConfRivalries.push({ a, b, neutral: !!def.neutral });
+        continue;
+      }
+      const ha = pickHome(a, b, !!def.neutral);
+      addEdge(ha.homeId, ha.awayId, {
+        isConf: true,
+        isRivalry: true,
+        neutralSite: ha.neutralSite || !!def.neutral,
+      });
+    }
+
+    // 2) Conference games — repeated greedy passes by remaining need
+    const byConf = {};
+    for (const id of fbsIds) {
+      const c = teams[id].conferenceId;
+      if (c === "18") continue;
+      if (!byConf[c]) byConf[c] = [];
+      byConf[c].push(id);
+    }
+
+    for (const confId of Object.keys(byConf)) {
+      const members = byConf[confId];
+      const n = members.length;
+      const target = CONF_GAME_TARGETS[confId] != null ? CONF_GAME_TARGETS[confId] : 8;
+      const hardMax = Math.min(n - 1, target + 2); // soft overflow so needy teams are not stranded
+
+      // Track conf games placed (rivalries already counted via confNeed deltas)
+      const confHave = {};
+      for (const id of members) {
+        confHave[id] = target - (confNeed[id] || 0);
+      }
+
+      for (let pass = 0; pass < 60; pass++) {
+        const needy = members
+          .filter((id) => (confHave[id] || 0) < target && (totalNeed[id] || 0) > 0)
+          .sort((a, b) => (confHave[a] || 0) - (confHave[b] || 0) || rng() - 0.5);
+        if (!needy.length) break;
+        let progress = false;
+        for (const a of needy) {
+          const partners = members
+            .filter(
+              (b) =>
+                b !== a &&
+                !opponents[a].has(b) &&
+                (totalNeed[b] || 0) > 0 &&
+                (confHave[b] || 0) < hardMax
+            )
+            .sort((x, y) => (confHave[x] || 0) - (confHave[y] || 0) || rng() - 0.5);
+          for (const b of partners) {
+            // Temporarily allow addEdge even if confNeed[b] is 0 by bumping confNeed
+            const bumpedA = confNeed[a] <= 0;
+            const bumpedB = confNeed[b] <= 0;
+            if (bumpedA) confNeed[a] = 1;
+            if (bumpedB) confNeed[b] = 1;
+            const ha = pickHome(a, b, false);
+            const ok = addEdge(ha.homeId, ha.awayId, { isConf: true, isRivalry: false, neutralSite: false });
+            if (!ok) {
+              if (bumpedA) confNeed[a] = 0;
+              if (bumpedB) confNeed[b] = 0;
+              continue;
+            }
+            confHave[a] = (confHave[a] || 0) + 1;
+            confHave[b] = (confHave[b] || 0) + 1;
+            progress = true;
+            break;
+          }
+          if (progress) break;
+        }
+        if (!progress) break;
+      }
+    }
+
+    // 3) Cross-conference protected rivalries
+    for (const r of crossConfRivalries) {
+      const ha = pickHome(r.a, r.b, r.neutral);
+      addEdge(ha.homeId, ha.awayId, {
+        isConf: false,
+        isRivalry: true,
+        neutralSite: ha.neutralSite || r.neutral,
+      });
+    }
+
+    // 4) Non-conference fill (FBS + occasional FCS)
+    function remainingList() {
+      return fbsIds.filter((id) => totalNeed[id] > 0).sort((a, b) => totalNeed[b] - totalNeed[a]);
+    }
+
+    let guard = 0;
+    while (guard++ < 8000) {
+      const needers = remainingList();
+      if (!needers.length) break;
+      let placed = false;
+      for (const a of needers) {
+        if (totalNeed[a] <= 0) continue;
+        const cands = fbsIds.filter(
+          (b) =>
+            b !== a &&
+            totalNeed[b] > 0 &&
+            !opponents[a].has(b) &&
+            (teams[a].conferenceId === "18" ||
+              teams[b].conferenceId === "18" ||
+              teams[a].conferenceId !== teams[b].conferenceId)
+        );
+        for (let i = cands.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          const tmp = cands[i];
+          cands[i] = cands[j];
+          cands[j] = tmp;
+        }
+        cands.sort((x, y) => {
+          const dx = Math.abs((teams[x].overall || 60) - (teams[a].overall || 60));
+          const dy = Math.abs((teams[y].overall || 60) - (teams[a].overall || 60));
+          return dx - dy;
+        });
+        for (const b of cands.slice(0, 32)) {
+          const ha = pickHome(a, b, false);
+          if (addEdge(ha.homeId, ha.awayId, { isConf: false, isRivalry: false, neutralSite: false })) {
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+        if (fcsPool.length && totalNeed[a] > 0) {
+          for (let k = 0; k < Math.min(12, fcsPool.length); k++) {
+            const fcsId = fcsPool[(fcsCursor + k) % fcsPool.length];
+            if (opponents[a].has(fcsId)) continue;
+            if (addEdge(a, fcsId, { isConf: false, isRivalry: false, neutralSite: false })) {
+              fcsCursor += k + 1;
+              placed = true;
+              break;
+            }
+          }
+          if (placed) break;
+        }
+      }
+      if (!placed) break;
+    }
+
+    // 5) Assign weeks (1–14). Never double-book a team. Non-conf early; conf mid/late; rivalries late ok.
+    const weekSlots = {};
+    for (const id of fbsIds) weekSlots[id] = new Set();
+
+    function assignWeek(edge, preferWeeks) {
+      const a = edge.homeId;
+      const b = edge.awayId;
+      const aFbs = fbsSet.has(a);
+      const bFbs = fbsSet.has(b);
+      const tryWeeks = preferWeeks.concat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+      const seen = new Set();
+      function free(w) {
+        if (aFbs && weekSlots[a].has(w)) return false;
+        if (bFbs && weekSlots[b].has(w)) return false;
+        return true;
+      }
+      for (const w of tryWeeks) {
+        if (seen.has(w) || !free(w)) continue;
+        seen.add(w);
+        if (aFbs) weekSlots[a].add(w);
+        if (bFbs) weekSlots[b].add(w);
+        edge.week = w;
+        return true;
+      }
+      // Absolute last resort: first free week up to 16
+      for (let w = 1; w <= 16; w++) {
+        if (!free(w)) continue;
+        if (aFbs) weekSlots[a].add(w);
+        if (bFbs) weekSlots[b].add(w);
+        edge.week = w;
+        return true;
+      }
+      edge.week = 15;
+      return false;
+    }
+
+    const nonConf = edges.filter((e) => !e.isConf);
+    const conf = edges.filter((e) => e.isConf);
+    for (const list of [nonConf, conf]) {
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        const tmp = list[i];
+        list[i] = list[j];
+        list[j] = tmp;
+      }
+    }
+    // Rivalries first within each group for preferred weeks
+    nonConf.sort((a, b) => (b.isRivalry ? 1 : 0) - (a.isRivalry ? 1 : 0));
+    conf.sort((a, b) => (b.isRivalry ? 1 : 0) - (a.isRivalry ? 1 : 0));
+    for (const e of nonConf) {
+      const prefs = e.isRivalry
+        ? [1, 2, 3, 12, 13, 4, 5]
+        : [1, 2, 3, 4, 5, 6];
+      assignWeek(e, prefs);
+    }
+    for (const e of conf) {
+      const prefs = e.isRivalry
+        ? [13, 12, 11, 10, 9, 8]
+        : [6, 7, 8, 9, 10, 11, 12, 13, 5, 4];
+      assignWeek(e, prefs);
+    }
+
+    //     // 5) Materialize schedules + unique games
+    function isoDate(week) {
+      // Approximate: Week 1 ≈ first Saturday after Aug 28 of `year`
+      const start = new Date(Date.UTC(year, 7, 28)); // Aug 28
+      while (start.getUTCDay() !== 6) start.setUTCDate(start.getUTCDate() + 1);
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + (week - 1) * 7);
+      return d.toISOString().replace(".000Z", "Z");
+    }
+
+    const schedules = {};
+    for (const id of fbsIds) schedules[id] = [];
+    const games = [];
+    let eventSeq = 0;
+
+    for (const e of edges) {
+      eventSeq++;
+      const eventId = "gen-" + year + "-" + eventSeq;
+      const home = teams[e.homeId];
+      const away = teams[e.awayId];
+      const homeName = home ? home.name : "Home";
+      const awayName = away ? away.name : "Away";
+      const homeAbbr = home ? home.abbreviation : "HOME";
+      const awayAbbr = away ? away.abbreviation : "AWAY";
+      const week = e.week || 1;
+      const date = isoDate(week);
+      const game = {
+        eventId,
+        date,
+        week,
+        homeId: e.homeId,
+        awayId: e.awayId,
+        neutralSite: !!e.neutralSite,
+        name: awayName + (e.neutralSite ? " vs " : " at ") + homeName,
+        shortName: awayAbbr + (e.neutralSite ? " vs " : " @ ") + homeAbbr,
+        homeIsFbs: fbsSet.has(e.homeId),
+        awayIsFbs: fbsSet.has(e.awayId),
+        generated: true,
+        isConf: !!e.isConf,
+        isRivalry: !!e.isRivalry,
+      };
+      games.push(game);
+
+      function pushTeamView(tid, oppId, homeAway) {
+        if (!schedules[tid]) return;
+        const opp = teams[oppId] || {};
+        schedules[tid].push({
+          eventId,
+          date,
+          week,
+          homeAway,
+          neutralSite: !!e.neutralSite,
+          opponentId: oppId,
+          opponentName: opp.name || "Opponent",
+          opponentAbbr: opp.abbreviation || "OPP",
+          homeId: e.homeId,
+          awayId: e.awayId,
+          name: game.name,
+          shortName: game.shortName,
+          generated: true,
+          isConf: !!e.isConf,
+          isRivalry: !!e.isRivalry,
+        });
+      }
+
+      if (fbsSet.has(e.homeId)) pushTeamView(e.homeId, e.awayId, e.neutralSite ? "neutral" : "home");
+      if (fbsSet.has(e.awayId)) pushTeamView(e.awayId, e.homeId, e.neutralSite ? "neutral" : "away");
+    }
+
+    for (const id of fbsIds) {
+      schedules[id].sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
+    }
+    games.sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
+
+    // Stats for debugging / README sanity
+    const confCounts = {};
+    for (const id of fbsIds) {
+      const c = teams[id].conferenceId;
+      const n = (schedules[id] || []).filter((g) => g.isConf).length;
+      if (!confCounts[c]) confCounts[c] = [];
+      confCounts[c].push(n);
+    }
+
+    return {
+      year,
+      schedules,
+      games,
+      meta: {
+        rivalryCount: edges.filter((e) => e.isRivalry).length,
+        totalGames: games.length,
+        confTargets: CONF_GAME_TARGETS,
+        confCounts,
+      },
+    };
+  }
+
+
   global.CFBSim = {
     simulateGame,
     teamRecord,
@@ -871,6 +1454,9 @@
     buildChampionship,
     seasonRecap,
     winnerId,
+    generateSeasonSchedule,
+    normalizeClass,
+    CONF_GAME_TARGETS,
     POWER4,
     G6,
   };

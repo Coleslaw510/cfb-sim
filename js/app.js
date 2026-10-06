@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v4";
-  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3"];
+  const STORAGE_KEY = "cfb-sim-2026-v5";
+  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4"];
   let DATA = null;
   let state = {
     teamId: null,
@@ -13,6 +13,7 @@
     phase: "regular", // regular | conf-champ | cfp-first | bowls | cfp-quarters | cfp-semis | cfp-championship | complete
     postseason: null, // built package + generated games
     history: [], // archived seasons { year, teamId, teamName, record, confRecord, finalRank, bowlResult, note }
+    generatedSchedule: null, // { year, schedules, games } for seasonYear > 2026
   };
 
   const rosterCache = {}; // teamId -> roster json
@@ -53,6 +54,7 @@
         state = Object.assign(state, parsed);
         if (!Array.isArray(state.history)) state.history = [];
         if (!state.seasonYear) state.seasonYear = 2026;
+        if (!state.generatedSchedule) state.generatedSchedule = null;
         if (migrated) {
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
         }
@@ -76,6 +78,57 @@
     return Math.max(...DATA.weeks.map((w) => w.week));
   }
 
+  /** Season 1 (2026) uses ESPN data; later years use generatedSchedule. */
+  function usesGeneratedSchedule() {
+    return (state.seasonYear || 2026) > 2026;
+  }
+
+  function ensureGeneratedSchedule() {
+    if (!usesGeneratedSchedule()) {
+      state.generatedSchedule = null;
+      return null;
+    }
+    if (
+      state.generatedSchedule &&
+      state.generatedSchedule.year === state.seasonYear &&
+      state.generatedSchedule.schedules &&
+      state.generatedSchedule.games
+    ) {
+      return state.generatedSchedule;
+    }
+    const pack = CFBSim.generateSeasonSchedule({
+      teams: DATA.teams,
+      fbsTeamIds: DATA.fbsTeamIds,
+      year: state.seasonYear,
+      seasonSeed: state.seasonSeed ^ CFBSim.hashSeed("sched|" + state.seasonYear),
+    });
+    state.generatedSchedule = {
+      year: pack.year,
+      schedules: pack.schedules,
+      games: pack.games,
+      meta: pack.meta || null,
+    };
+    return state.generatedSchedule;
+  }
+
+  function activeSchedules() {
+    if (!usesGeneratedSchedule()) return DATA.schedules;
+    const pack = ensureGeneratedSchedule();
+    return (pack && pack.schedules) || DATA.schedules;
+  }
+
+  function activeGames() {
+    if (!usesGeneratedSchedule()) return DATA.games;
+    const pack = ensureGeneratedSchedule();
+    return (pack && pack.games) || DATA.games;
+  }
+
+  function classBadge(c) {
+    const n = CFBSim.normalizeClass(c);
+    if (!n) return "";
+    return `<span class="class-badge" title="Class year">${escapeHtml(n)}</span>`;
+  }
+
   /** Results for poll as of entering `week` (regular-season games with week < week). */
   function resultsBeforeWeek(week) {
     return resultsList().filter((g) => {
@@ -91,7 +144,7 @@
       DATA.fbsTeamIds,
       DATA.teams,
       results,
-      DATA.schedules,
+      activeSchedules(),
       asOfWeek
     );
     const map = {};
@@ -318,7 +371,7 @@
   }
 
   function renderSchedule() {
-    const sched = (DATA.schedules[state.teamId] || []).slice().sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
+    const sched = (activeSchedules()[state.teamId] || []).slice().sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
     const next = state.currentWeek;
     // Cache latest ranks once for upcoming games + historical polls by week
     const latestRanks = latestPollRanks();
@@ -433,7 +486,7 @@
 
   function renderBox() {
     const el = $("#boxScore");
-    const sched = DATA.schedules[state.teamId] || [];
+    const sched = activeSchedules()[state.teamId] || [];
     let last = null;
     for (const g of sched) {
       if (state.results[g.eventId]) last = state.results[g.eventId];
@@ -582,7 +635,7 @@
       DATA.fbsTeamIds,
       DATA.teams,
       resultsList(),
-      DATA.schedules,
+      activeSchedules(),
       currentPollWeek()
     ).slice(0, 25);
     $("#top25Table").innerHTML = `
@@ -631,68 +684,76 @@
     const t = team(state.teamId);
     const q = agg.qualifiers || {};
     const qNote = q.passing
-      ? `FBS boards ranked by YPG · min ${q.passing.minGames} games (pass ≥${q.passing.minAttPerGame * q.passing.minGames} att · rush ≥${q.rushing.minAttPerGame * q.rushing.minGames} att · rec ≥${q.receiving.minRecPerGame * q.receiving.minGames} rec).`
-      : "FBS boards ranked by yards per game with min-game qualifiers.";
+      ? `FBS boards ranked by season totals (Yds) · medals for top 3 · min ${q.passing.minGames} games (pass ≥${q.passing.minAttPerGame * q.passing.minGames} att · rush ≥${q.rushing.minAttPerGame * q.rushing.minGames} att · rec ≥${q.receiving.minRecPerGame * q.receiving.minGames} rec).`
+      : "FBS boards ranked by season yard totals with min-game qualifiers. Medals on top 3 only.";
 
     function teamAbbrev(tid) {
       const tm = team(tid);
       return tm ? escapeHtml(tm.abbreviation || "") : "";
     }
 
-    function passTable(rows, limit, ranked) {
+    function playerCell(p) {
+      const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
+      return `${escapeHtml(p.name)}${teamCell}`;
+    }
+
+    function rankCell(rank, useMedals) {
+      if (useMedals) return medalCell(rank);
+      return `<span class="rank-num">${rank}</span>`;
+    }
+
+    /** useMedals: true only for FBS leaderboards (not team tables). */
+    function passTable(rows, limit, useMedals) {
       const slice = rows.slice(0, limit);
       if (!slice.length) return '<p class="muted small">No qualified passing stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>C/A</th><th>INT</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Yr</th><th>G</th><th>Yds</th><th>TD</th><th>C/A</th><th>INT</th></tr></thead>
         <tbody>${slice.map((p, i) => {
           const rank = i + 1;
-          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
           return `<tr>
-            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
-            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td class="rank-col">${rankCell(rank, useMedals)}</td>
+            <td>${playerCell(p)}</td>
+            <td>${classBadge(p.class) || "—"}</td>
             <td>${p.gp || 0}</td>
-            <td class="stat-lead">${fmtRate(p.ypg)}</td>
-            <td>${p.yds}</td>
-            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td class="stat-lead">${p.yds}</td>
+            <td>${p.td}</td>
             <td>${p.comp}/${p.att}</td>
             <td>${p.int}</td>
           </tr>`;
         }).join("")}</tbody></table>`;
     }
-    function rushTable(rows, limit, ranked) {
+    function rushTable(rows, limit, useMedals) {
       const slice = rows.slice(0, limit);
       if (!slice.length) return '<p class="muted small">No qualified rushing stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>Att</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Yr</th><th>G</th><th>Yds</th><th>TD</th><th>Att</th></tr></thead>
         <tbody>${slice.map((p, i) => {
           const rank = i + 1;
-          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
           return `<tr>
-            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
-            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td class="rank-col">${rankCell(rank, useMedals)}</td>
+            <td>${playerCell(p)}</td>
+            <td>${classBadge(p.class) || "—"}</td>
             <td>${p.gp || 0}</td>
-            <td class="stat-lead">${fmtRate(p.ypg)}</td>
-            <td>${p.yds}</td>
-            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td class="stat-lead">${p.yds}</td>
+            <td>${p.td}</td>
             <td>${p.att}</td>
           </tr>`;
         }).join("")}</tbody></table>`;
     }
-    function recTable(rows, limit, ranked) {
+    function recTable(rows, limit, useMedals) {
       const slice = rows.slice(0, limit);
       if (!slice.length) return '<p class="muted small">No qualified receiving stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>Rec</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Yr</th><th>G</th><th>Yds</th><th>TD</th><th>Rec</th></tr></thead>
         <tbody>${slice.map((p, i) => {
           const rank = i + 1;
-          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
           return `<tr>
-            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
-            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td class="rank-col">${rankCell(rank, useMedals)}</td>
+            <td>${playerCell(p)}</td>
+            <td>${classBadge(p.class) || "—"}</td>
             <td>${p.gp || 0}</td>
-            <td class="stat-lead">${fmtRate(p.ypg)}</td>
-            <td>${p.yds}</td>
-            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td class="stat-lead">${p.yds}</td>
+            <td>${p.td}</td>
             <td>${p.rec}</td>
           </tr>`;
         }).join("")}</tbody></table>`;
@@ -701,20 +762,20 @@
     el.innerHTML = `
       <div class="stats-section">
         <h3>${escapeHtml(t.shortName || t.name)} leaders</h3>
-        <p class="muted small stats-note">Sorted by yards/game · totals shown alongside.</p>
+        <p class="muted small stats-note">Season totals · sorted by yards. Plain 1–3 ranks (no medals).</p>
         <div class="stats-grid">
-          <div class="stat-block"><h3>Passing</h3>${passTable(mine.passing, 5, true)}</div>
-          <div class="stat-block"><h3>Rushing</h3>${rushTable(mine.rushing, 6, true)}</div>
-          <div class="stat-block"><h3>Receiving</h3>${recTable(mine.receiving, 6, true)}</div>
+          <div class="stat-block"><h3>Passing</h3>${passTable(mine.passing, 5, false)}</div>
+          <div class="stat-block"><h3>Rushing</h3>${rushTable(mine.rushing, 6, false)}</div>
+          <div class="stat-block"><h3>Receiving</h3>${recTable(mine.receiving, 6, false)}</div>
         </div>
       </div>
       <div class="stats-section">
         <h3>FBS leaders</h3>
         <p class="muted small stats-note">${escapeHtml(qNote)}</p>
         <div class="stats-grid">
-          <div class="stat-block"><h3>Passing YPG</h3>${passTable(agg.leaders.passing, 10, true)}</div>
-          <div class="stat-block"><h3>Rushing YPG</h3>${rushTable(agg.leaders.rushing, 10, true)}</div>
-          <div class="stat-block"><h3>Receiving YPG</h3>${recTable(agg.leaders.receiving, 10, true)}</div>
+          <div class="stat-block"><h3>Passing yards</h3>${passTable(agg.leaders.passing, 10, true)}</div>
+          <div class="stat-block"><h3>Rushing yards</h3>${rushTable(agg.leaders.rushing, 10, true)}</div>
+          <div class="stat-block"><h3>Receiving yards</h3>${recTable(agg.leaders.receiving, 10, true)}</div>
         </div>
       </div>`;
   }
@@ -727,7 +788,7 @@
       const t = team(state.teamId);
       sel.innerHTML = `<option value="${t.id}">${escapeHtml(t.shortName || t.name)} (yours)</option>`;
       // Add upcoming / recent opponents
-      const sched = DATA.schedules[state.teamId] || [];
+      const sched = activeSchedules()[state.teamId] || [];
       const seen = new Set([t.id]);
       for (const g of sched) {
         if (seen.has(g.opponentId)) continue;
@@ -767,7 +828,7 @@
                     .map((i, slot) => {
                       const p = roster.players[i];
                       if (!p) return "";
-                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> <span class="muted small">${escapeHtml(p.p)}${p.c ? " · " + escapeHtml(p.c) : ""}</span></li>`;
+                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
                     })
                     .join("")}
                 </ol>
@@ -866,7 +927,7 @@
       DATA.fbsTeamIds,
       DATA.teams,
       resultsList(),
-      DATA.schedules,
+      activeSchedules(),
       maxWeek() + 1
     );
     return CFBSim.seasonRecap(state.teamId, DATA.teams, resultsList(), ranked, state.postseason);
@@ -1003,6 +1064,8 @@
     state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + nextYear);
     state.phase = "regular";
     state.postseason = null;
+    state.generatedSchedule = null; // force fresh slate for the new year
+    if (nextYear > 2026) ensureGeneratedSchedule();
     const sel = $("#depthTeamSelect");
     if (sel) sel.innerHTML = "";
     save();
@@ -1010,7 +1073,7 @@
     switchTab("schedule");
     toast(
       archived
-        ? `${archived.year} archived · ${nextYear} season started`
+        ? `${archived.year} archived · ${nextYear} schedule generated`
         : `${nextYear} season started`
     );
   }
@@ -1064,7 +1127,7 @@
   }
 
   async function simRegularWeek(week) {
-    const games = DATA.games.filter((g) => g.week === week);
+    const games = activeGames().filter((g) => g.week === week);
     let userBox = null;
     let count = 0;
 
@@ -1084,7 +1147,7 @@
     }
 
     state.currentWeek = week + 1;
-    while (state.currentWeek <= maxWeek() && !DATA.games.some((g) => g.week === state.currentWeek)) {
+    while (state.currentWeek <= maxWeek() && !activeGames().some((g) => g.week === state.currentWeek)) {
       state.currentWeek++;
     }
 
@@ -1095,7 +1158,7 @@
       switchTab("box");
       toast(`Week ${week} done · ${count} games simmed`);
     } else {
-      const bye = !(DATA.schedules[state.teamId] || []).some((g) => g.week === week);
+      const bye = !(activeSchedules()[state.teamId] || []).some((g) => g.week === week);
       switchTab(bye ? "standings" : "schedule");
       toast(bye ? `Week ${week}: bye · ${count} FBS games simmed` : `Week ${week} · ${count} games`);
     }
@@ -1147,7 +1210,7 @@
       DATA.fbsTeamIds,
       DATA.teams,
       resultsList(),
-      DATA.schedules,
+      activeSchedules(),
       maxWeek() + 1
     );
     const pkg = CFBSim.buildPostseason(
@@ -1386,6 +1449,7 @@
     );
     $("#depthTeamSelect").addEventListener("change", () => renderDepth());
 
+    if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {
       showSeason();
     } else {

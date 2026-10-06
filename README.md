@@ -15,20 +15,20 @@ python3 -m http.server 8765
 
 Open [http://localhost:8765](http://localhost:8765).
 
-Progress is stored in `localStorage` (`cfb-sim-2026-v4`). Older `v1`–`v3` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year and rolls forward with the same rosters/ratings.
+Progress is stored in `localStorage` (`cfb-sim-2026-v5`). Older `v1`–`v4` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year, rolls forward with the same rosters/ratings, and **generates a new regular-season schedule** (season 1 keeps the real 2026 ESPN slate).
 
 ## Features
 
 1. FBS team picker (search + conference filter)
-2. Real 2026 regular-season schedule (weeks, opponents, home/away/neutral)
+2. Real 2026 regular-season schedule for season 1; **generated schedules** for later dynasty years
 3. **Real ESPN rosters** with a simple depth chart (QB / RB / WR / TE / OL / DL / LB / DB / K / P)
 4. **Sim next week** — simulates **all** FBS regular-season games that week
 5. Box score with **real player names** for pass / rush / rec leaders (from depth chart)
 6. Schedule rows show opponent **Top 25 rank badges** (poll as of that week / latest for upcoming)
 7. Conference standings + retuned sim Top 25
-8. **Season stats** — lead with **YPG / TD/G** (totals alongside); gold/silver/bronze medals for top 3; FBS boards use min-game qualifiers
+8. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
 9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
-10. End-of-season recap + **Start next season** (same rosters)
+10. End-of-season recap + **Start next season** (same rosters, new generated schedule)
 11. **History** tab — archived years (record, conf, rank, bowl/CFP)
 12. Persist / reset (History preserved)
 
@@ -164,10 +164,25 @@ Every simmed box score attributes pass / rush / receiving lines to **depth-chart
 
 The **Season stats** tab shows:
 
-- Your team’s cumulative leaders (comp/att, yards, TD, INT · rush att/yds/TD · rec/yds/TD)
-- FBS leaders boards (top yards) from the same attributions
+- Your team’s cumulative leaders as **season totals** (Yds, TD, C/A, …) with class year
+- FBS leaders boards ranked by **total yards** (min-game qualifiers); **medals only here**
 
-Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v3`) — no separate counter to reset beyond **Reset season**.
+Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v5`) — no separate counter to reset beyond **Reset season**.
+
+
+## Multi-year schedule generation
+
+**Season 1** (year 2026 for a new save) always uses the scraped **ESPN 2026** regular-season slate.
+
+**Later seasons** (`Start next season`) call `CFBSim.generateSeasonSchedule` and store the result on the save (`generatedSchedule`). Rules:
+
+1. **Rivalries** — a built-in list of protected games (Michigan–Ohio State, Alabama–Auburn, Iowa–Iowa State, Texas–Oklahoma, USC–UCLA, Georgia–Florida, Egg Bowl, Army–Navy, and a wider P4/G5 set). Applied when both teams exist. Same-conference rivals count toward conference games; cross-conference rivals are non-conference. A few (Red River, Florida–Georgia, Army–Navy) are marked neutral.
+2. **Conference game counts** — targets match the **2026 data modes**: Big Ten / Big 12 / SEC **9**, ACC **9**, American / CUSA / MAC / MW / Sun Belt **8**, Pac-12 **7**, Independents **0**. Soft ±1 overflow is allowed so teams are not left short when rivalry clusters would otherwise strand them.
+3. **Non-conference** — remaining slots (typical total **12** games) filled with FBS opponents from other conferences (rating-aware mix), plus occasional FCS from the stub pool in the data file.
+4. **Home/away** — roughly even; home designation flips by year seed when balance is close. No opponent twice in one season (except via the protected-rivalry list if ever needed — currently pairs are unique).
+5. **Weeks** — structure similar to ESPN (weeks 1–15); non-conf tends early, conference mid/late, bye weeks OK; never two games for one team in the same week.
+
+Rosters are **not** aged yet; class year is stored and displayed for future advancement.
 
 ## Limitations
 

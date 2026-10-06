@@ -65,7 +65,7 @@ def compact_roster(raw):
             players.append({"n": name, "j": jersey, "p": pos, "c": cls or ""})
             buckets[bucket].append(idx)
 
-    CLASS_RANK = {"SR": 0, "JR": 1, "SO": 2, "FR": 3, "": 4}
+    CLASS_RANK = {"SR": 0, "JR": 1, "SO": 2, "FR": 3, "RS": 2, "RS-SR": 0, "RS-JR": 1, "RS-SO": 2, "RS-FR": 3, "": 4}
     depth = {}
     for bucket in DEPTH_ORDER:
         lim = DEPTH_LIMITS.get(bucket, 5)
