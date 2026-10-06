@@ -503,3 +503,128 @@ table.rank-table tr.mine { background: #f3f7ff; }
 }
 .depth-grid .class-badge { margin-left: 6px; }
 .stats-table .class-badge { margin-left: 0; }
+
+/* ---- Coins / All-Time Shop ---- */
+.coin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff8e8;
+  border: 1px solid #f0d9a0;
+  color: #7a5b10;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.coin-chip.large { padding: 10px 14px; font-size: 15px; }
+.coin-chip .coin-icon {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: linear-gradient(145deg, #f6d365, #d4a017);
+  display: inline-block;
+  color: transparent;
+  font-size: 1px;
+}
+.coin-chip strong { font-variant-numeric: tabular-nums; }
+.coin-label { color: #9a7a2e; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.shop-header {
+  display: flex; flex-wrap: wrap; gap: 16px;
+  justify-content: space-between; align-items: flex-start;
+  margin-bottom: 18px;
+}
+.shop-header h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3.5vw, 2rem); letter-spacing: -0.03em; }
+.shop-header p { margin: 0; max-width: 40rem; }
+.shop-header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+.shop-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 900px) {
+  .shop-layout { grid-template-columns: 280px 1fr; align-items: start; }
+}
+.shop-side { display: flex; flex-direction: column; gap: 12px; }
+.shop-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.shop-card h3 { margin: 0 0 10px; font-size: 14px; }
+.shop-note { margin: 10px 0 0; }
+.shop-meta { margin: 0 0 10px; }
+
+.goals-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
+.goal-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.goal-row:last-child { border-bottom: 0; }
+.goal-amt { font-weight: 700; color: #7a5b10; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.goal-group {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-top: 8px; margin-bottom: 2px;
+}
+.payout-line {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 12px; padding: 4px 0;
+}
+.payout-total { font-weight: 700; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+.owned-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
+.owned-item { display: flex; justify-content: space-between; gap: 6px; }
+
+.shop-filters { margin-bottom: 8px; }
+@media (min-width: 720px) {
+  .shop-filters.filters { grid-template-columns: 1.4fr 1fr 0.8fr 0.8fr; }
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.shop-card-player {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.shop-card-player.owned { border-color: #9bb0d0; background: #f3f7ff; }
+.shop-card-player .sp-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.shop-card-player .sp-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
+.shop-card-player .sp-meta { color: var(--muted); font-size: 12px; }
+.ovr-pill {
+  display: inline-grid; place-items: center;
+  min-width: 36px; height: 28px; padding: 0 8px;
+  border-radius: 8px; font-weight: 800; font-size: 13px;
+  background: #0b0c0e; color: #fff;
+}
+.ovr-pill.elite { background: linear-gradient(145deg, #f6d365, #b8860b); color: #2a1c00; }
+.ovr-pill.great { background: var(--accent); }
+.shop-card-player .sp-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
+.shop-cost { font-weight: 700; color: #7a5b10; font-variant-numeric: tabular-nums; }
+.btn-buy { padding: 8px 12px; }
+.btn-buy:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.recap-coins {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff8e8;
+  border: 1px solid #f0d9a0;
+}
+.recap-coins h3 { margin: 0 0 6px; font-size: 14px; color: #7a5b10; }

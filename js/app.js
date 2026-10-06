@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v5";
-  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4"];
+  const STORAGE_KEY = "cfb-sim-2026-v6";
+  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5"];
   let DATA = null;
   let state = {
     teamId: null,
@@ -14,7 +14,15 @@
     postseason: null, // built package + generated games
     history: [], // archived seasons { year, teamId, teamName, record, confRecord, finalRank, bowlResult, note }
     generatedSchedule: null, // { year, schedules, games } for seasonYear > 2026
+    // Coin economy + All-Time Shop (between seasons). Recruiting can reuse owned/roster engine later.
+    coins: typeof CFBEconomy !== "undefined" ? CFBEconomy.STARTING_COINS : 100,
+    ownedPlayerIds: [], // catalog ids permanently on user's program
+    claimedGoals: {}, // { [seasonYear]: [goalId, ...] } — prevents double-pay
+    lastSeasonPayout: null, // { year, total, lines }
   };
+
+  let ALLTIME = null; // { players, teams, ... } catalog
+  let shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
 
   const rosterCache = {}; // teamId -> roster json
   const $ = (sel) => document.querySelector(sel);
@@ -55,6 +63,12 @@
         if (!Array.isArray(state.history)) state.history = [];
         if (!state.seasonYear) state.seasonYear = 2026;
         if (!state.generatedSchedule) state.generatedSchedule = null;
+        if (!Array.isArray(state.ownedPlayerIds)) state.ownedPlayerIds = [];
+        if (!state.claimedGoals || typeof state.claimedGoals !== "object") state.claimedGoals = {};
+        if (typeof state.coins !== "number" || !Number.isFinite(state.coins)) {
+          state.coins = typeof CFBEconomy !== "undefined" ? CFBEconomy.STARTING_COINS : 100;
+        }
+        if (!state.lastSeasonPayout) state.lastSeasonPayout = null;
         if (migrated) {
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
         }
@@ -214,6 +228,63 @@
     await Promise.all(uniq.map((id) => loadRoster(id)));
   }
 
+  function ownedCatalogPlayers() {
+    if (!ALLTIME || !ALLTIME.players) return [];
+    const set = new Set(state.ownedPlayerIds || []);
+    return ALLTIME.players.filter((p) => set.has(p.id));
+  }
+
+  /** Effective roster for display/sim — user's team merges purchased all-time players. */
+  async function effectiveRoster(teamId) {
+    const base = await loadRoster(teamId);
+    if (!base) return null;
+    if (String(teamId) !== String(state.teamId)) return base;
+    const owned = ownedCatalogPlayers();
+    if (!owned.length) return base;
+    return CFBRosterEngine.applyOwnedPlayers(base, owned, { source: "alltime" });
+  }
+
+  /** Team ratings with soft shop boost for the user's school only. */
+  function effectiveTeam(teamId) {
+    const t = team(teamId);
+    if (!t) return null;
+    if (String(teamId) !== String(state.teamId)) return t;
+    const boost = CFBRosterEngine.ratingBoostFromOwned(ownedCatalogPlayers());
+    if (!boost.offense && !boost.defense) return t;
+    return CFBRosterEngine.applyBoostToTeam(t, boost);
+  }
+
+  function updateCoinUI() {
+    const chip = $("#coinChip");
+    const bal = $("#coinBalance");
+    const shopBal = $("#shopCoinBalance");
+    if (bal) bal.textContent = String(state.coins || 0);
+    if (shopBal) shopBal.textContent = String(state.coins || 0);
+    if (chip) chip.hidden = !state.teamId;
+  }
+
+  function awardSeasonCoinsIfNeeded() {
+    if (state.phase !== "complete" || !state.teamId) return null;
+    const year = String(state.seasonYear || 2026);
+    if (!state.claimedGoals) state.claimedGoals = {};
+    if (Object.prototype.hasOwnProperty.call(state.claimedGoals, year)) {
+      // Already paid for this year — keep lastSeasonPayout if present
+      return state.lastSeasonPayout;
+    }
+    const recap = currentSeasonRecap();
+    const lines = CFBEconomy.evaluateSeasonGoals({
+      teamId: state.teamId,
+      results: resultsList(),
+      recap,
+    });
+    const total = CFBEconomy.payoutTotal(lines);
+    state.coins = (state.coins || 0) + total;
+    state.claimedGoals[year] = lines.map((l) => l.id + (l.count && l.count > 1 ? "x" + l.count : ""));
+    state.lastSeasonPayout = { year: Number(year), total, lines };
+    save();
+    return state.lastSeasonPayout;
+  }
+
   /* ---------- Picker ---------- */
   function populateConfFilter() {
     const sel = $("#confFilter");
@@ -304,7 +375,7 @@
       <img src="${t.logo}" alt="" width="52" height="52" onerror="this.style.visibility='hidden'" />
       <div>
         <h2>${escapeHtml(t.name)}</h2>
-        <div class="sub">${year} · ${escapeHtml(t.conference)} · OVR ${t.overall}${t.apRank ? " · seeded AP #" + t.apRank : ""}</div>
+        <div class="sub">${year} · ${escapeHtml(t.conference)} · OVR ${(effectiveTeam(state.teamId)||t).overall}${t.apRank ? " · seeded AP #" + t.apRank : ""}${(state.ownedPlayerIds||[]).length ? " · " + state.ownedPlayerIds.length + " shop" : ""}</div>
       </div>`;
 
     const btn = $("#btnSimWeek");
@@ -329,7 +400,7 @@
     } else if (state.phase === "complete") {
       $("#weekLabel").textContent = (state.seasonYear || 2026) + " season complete";
       btn.disabled = false;
-      btn.textContent = "Start next season";
+      btn.textContent = "All-Time Shop";
       btnChunk.hidden = true;
     } else {
       $("#weekLabel").textContent = phaseLabel();
@@ -346,6 +417,8 @@
     renderSeasonStats();
     renderDepth();
     renderPostseason();
+    if (state.phase === "complete") awardSeasonCoinsIfNeeded();
+    updateCoinUI();
     renderRecap();
     renderHistory();
   }
@@ -799,7 +872,7 @@
       }
     }
     const tid = sel.value || state.teamId;
-    const roster = await loadRoster(tid);
+    const roster = await effectiveRoster(tid);
     const t = team(tid);
     if (!roster || !roster.players || !roster.players.length) {
       el.innerHTML = `<div class="box-empty">No roster available for ${escapeHtml(t.shortName || t.name)}.</div>`;
@@ -812,7 +885,7 @@
         <img src="${t.logo}" alt="" width="36" height="36" onerror="this.style.visibility='hidden'" />
         <div>
           <strong>${escapeHtml(t.shortName || t.name)} depth chart</strong>
-          <div class="muted small">${roster.players.length} players · ESPN roster order</div>
+          <div class="muted small">${roster.players.length} players · ESPN base${(roster.players||[]).filter(p=>p.src==="alltime").length ? " + " + (roster.players||[]).filter(p=>p.src==="alltime").length + " all-time" : ""}${String(tid)===String(state.teamId) && (state.ownedPlayerIds||[]).length ? " · shop active" : ""}</div>
         </div>
       </div>
       <div class="depth-grid">
@@ -828,7 +901,8 @@
                     .map((i, slot) => {
                       const p = roster.players[i];
                       if (!p) return "";
-                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
+                      const at = p.src === "alltime" ? ` <span class="class-badge" title="All-time shop">AT${p.ovr != null ? " " + p.ovr : ""}</span>` : "";
+                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)}${at} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
                     })
                     .join("")}
                 </ol>
@@ -918,6 +992,7 @@
         </div>
         <p class="recap-bowl">${escapeHtml(recap.bowlResult)}</p>
         ${recap.summary ? `<p class="recap-summary muted">${escapeHtml(recap.summary)}</p>` : ""}
+        ${(opts && opts.coinsHtml) ? opts.coinsHtml : ""}
         ${actions}
       </div>`;
   }
@@ -944,17 +1019,29 @@
     }
     const recap = currentSeasonRecap();
     const t = team(state.teamId);
+    const payout = awardSeasonCoinsIfNeeded();
+    updateCoinUI();
+    let coinsHtml = "";
+    if (payout) {
+      const lines = (payout.lines || [])
+        .map((l) => `<div class="payout-line"><span>${escapeHtml(l.label)}${l.detail ? " · " + escapeHtml(l.detail) : ""}</span><span class="goal-amt">+${l.amount}</span></div>`)
+        .join("") || '<div class="muted small">No goal payouts this season.</div>';
+      coinsHtml = `<div class="recap-coins"><h3>Coins earned · ${payout.year}</h3>${lines}<div class="payout-total">Payout +${payout.total} · Balance ${state.coins}</div></div>`;
+    }
     const actions = `<div class="recap-actions">
-        <button type="button" class="btn btn-primary" id="btnStartNextSeason">Start next season</button>
-        <span class="muted small">Same roster &amp; ratings · history is saved</span>
+        <button type="button" class="btn btn-primary" id="btnOpenShop">All-Time Shop</button>
+        <button type="button" class="btn btn-ghost" id="btnStartNextSeason">Start next season</button>
+        <span class="muted small">Shop between seasons · purchases stay on your roster</span>
       </div>`;
-    const html = buildRecapHtml(recap, t, { actions });
+    const html = buildRecapHtml(recap, t, { actions, coinsHtml });
     wrap.hidden = false;
     wrap.innerHTML = html;
     if (panel) panel.innerHTML = html;
-    // Wire both possible buttons (card + panel)
     $$("#btnStartNextSeason").forEach((btn) => {
       btn.addEventListener("click", () => startNextSeason());
+    });
+    $$("#btnOpenShop").forEach((btn) => {
+      btn.addEventListener("click", () => openShop());
     });
   }
 
@@ -992,7 +1079,8 @@
             <div class="hb">${escapeHtml(recap.bowlResult)}</div>
           </div>
           <div class="recap-actions" style="margin-top:10px">
-            <button type="button" class="btn btn-primary" id="btnStartNextSeasonHistory">Start next season</button>
+            <button type="button" class="btn btn-primary" id="btnOpenShopHistory">All-Time Shop</button>
+            <button type="button" class="btn btn-ghost" id="btnStartNextSeasonHistory">Start next season</button>
           </div>
         </div>`;
     }
@@ -1032,6 +1120,8 @@
     el.innerHTML = preview + archived;
     const btn = $("#btnStartNextSeasonHistory");
     if (btn) btn.addEventListener("click", () => startNextSeason());
+    const shopBtn = $("#btnOpenShopHistory");
+    if (shopBtn) shopBtn.addEventListener("click", () => openShop());
   }
 
   function archiveCurrentSeason() {
@@ -1053,6 +1143,189 @@
     return entry;
   }
 
+
+  /* ---------- All-Time Shop (between seasons) ---------- */
+  function showShop() {
+    $("#view-picker").hidden = true;
+    $("#view-season").hidden = true;
+    $("#view-shop").hidden = false;
+    $("#topbarActions").hidden = false;
+    updateCoinUI();
+  }
+
+  function openShop() {
+    if (state.phase !== "complete" || !state.teamId) {
+      toast("Shop opens after the season ends");
+      return;
+    }
+    awardSeasonCoinsIfNeeded();
+    populateShopTeamFilter();
+    renderShopGoals();
+    renderShopPayout();
+    renderShopOwned();
+    renderShopGrid();
+    showShop();
+  }
+
+  function closeShopToRecap() {
+    $("#view-shop").hidden = true;
+    showSeason();
+    switchTab("recap");
+  }
+
+  function populateShopTeamFilter() {
+    const sel = $("#shopTeamFilter");
+    if (!sel || !ALLTIME) return;
+    const cur = sel.value;
+    const teams = Object.values(ALLTIME.teams || {}).slice().sort((a, b) => a.name.localeCompare(b.name));
+    sel.innerHTML = '<option value="">All teams</option>' + teams.map((t) =>
+      `<option value="${t.id}">${escapeHtml(t.name)} (${t.count})</option>`
+    ).join("");
+    if (cur) sel.value = cur;
+  }
+
+  function renderShopGoals() {
+    const el = $("#shopGoalsList");
+    if (!el || typeof CFBEconomy === "undefined") return;
+    let html = "";
+    let group = null;
+    for (const g of CFBEconomy.GOAL_DEFS) {
+      if (g.group !== group) {
+        group = g.group;
+        html += `<div class="goal-group">${escapeHtml(group)}</div>`;
+      }
+      const extra = g.perEvent ? " (each)" : "";
+      html += `<div class="goal-row"><span>${escapeHtml(g.label)}${extra}</span><span class="goal-amt">+${g.amount}</span></div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  function renderShopPayout() {
+    const el = $("#shopPayoutBody");
+    if (!el) return;
+    const p = state.lastSeasonPayout;
+    if (!p) {
+      el.innerHTML = "Finish a season to earn coins.";
+      return;
+    }
+    const lines = (p.lines || [])
+      .map((l) => `<div class="payout-line"><span>${escapeHtml(l.label)}</span><span class="goal-amt">+${l.amount}</span></div>`)
+      .join("") || "<div>No goals hit.</div>";
+    el.innerHTML = lines + `<div class="payout-total">${p.year} payout +${p.total}</div>`;
+  }
+
+  function renderShopOwned() {
+    const el = $("#shopOwnedList");
+    if (!el) return;
+    const owned = ownedCatalogPlayers();
+    if (!owned.length) {
+      el.innerHTML = "None yet — browse and buy below.";
+      return;
+    }
+    el.innerHTML = owned
+      .slice()
+      .sort((a, b) => b.ovr - a.ovr)
+      .map((p) => `<div class="owned-item"><span>${escapeHtml(p.n)} <span class="muted">${escapeHtml(p.p)} · ${escapeHtml(p.school)}</span></span><span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}">${p.ovr}</span></div>`)
+      .join("");
+  }
+
+  function filteredShopPlayers() {
+    if (!ALLTIME || !ALLTIME.players) return [];
+    const q = (shopFilter.q || "").trim().toLowerCase();
+    let list = ALLTIME.players.slice();
+    if (shopFilter.teamId) list = list.filter((p) => String(p.schoolId) === String(shopFilter.teamId));
+    if (shopFilter.pos) list = list.filter((p) => CFBRosterEngine.depthBucket(p.p) === shopFilter.pos);
+    if (q) {
+      list = list.filter((p) =>
+        p.n.toLowerCase().includes(q) ||
+        (p.school || "").toLowerCase().includes(q) ||
+        (p.p || "").toLowerCase().includes(q)
+      );
+    }
+    const owned = new Set(state.ownedPlayerIds || []);
+    const sort = shopFilter.sort || "ovr";
+    list.sort((a, b) => {
+      if (sort === "cost") return b.cost - a.cost || b.ovr - a.ovr;
+      if (sort === "name") return a.n.localeCompare(b.n);
+      if (sort === "school") return a.school.localeCompare(b.school) || b.ovr - a.ovr;
+      return b.ovr - a.ovr || a.n.localeCompare(b.n);
+    });
+    // Prefer showing owned first lightly? No — keep sort, mark owned in card
+    return list;
+  }
+
+  function renderShopGrid() {
+    const el = $("#shopGrid");
+    const meta = $("#shopMeta");
+    if (!el) return;
+    if (!ALLTIME) {
+      el.innerHTML = '<div class="box-empty">All-time catalog failed to load.</div>';
+      return;
+    }
+    const owned = new Set(state.ownedPlayerIds || []);
+    const list = filteredShopPlayers();
+    if (meta) {
+      meta.textContent = `${list.length} players shown · ${ALLTIME.playerCount} in catalog · ${owned.size} owned · balance ${state.coins}`;
+    }
+    const MAX = 120;
+    const slice = list.slice(0, MAX);
+    if (!slice.length) {
+      el.innerHTML = '<div class="box-empty">No players match these filters.</div>';
+      return;
+    }
+    el.innerHTML = slice.map((p) => {
+      const isOwned = owned.has(p.id);
+      const canBuy = !isOwned && state.coins >= p.cost;
+      const ovrClass = p.ovr >= 95 ? "elite" : p.ovr >= 88 ? "great" : "";
+      const btn = isOwned
+        ? `<button type="button" class="btn btn-ghost btn-buy" disabled>Owned</button>`
+        : `<button type="button" class="btn btn-primary btn-buy" data-buy="${p.id}" ${canBuy ? "" : "disabled"}>${canBuy ? "Buy" : "Need coins"}</button>`;
+      return `<div class="shop-card-player ${isOwned ? "owned" : ""}">
+        <div class="sp-top">
+          <div>
+            <div class="sp-name">${escapeHtml(p.n)}</div>
+            <div class="sp-meta">${escapeHtml(p.p)} · ${escapeHtml(p.school)}</div>
+          </div>
+          <span class="ovr-pill ${ovrClass}">${p.ovr}</span>
+        </div>
+        <div class="sp-actions">
+          <span class="shop-cost">${p.cost} coins</span>
+          ${btn}
+        </div>
+      </div>`;
+    }).join("") + (list.length > MAX ? `<div class="muted small" style="grid-column:1/-1;padding:8px">Showing ${MAX} of ${list.length} — refine filters to narrow.</div>` : "");
+
+    el.querySelectorAll("[data-buy]").forEach((btn) => {
+      btn.addEventListener("click", () => purchasePlayer(btn.getAttribute("data-buy")));
+    });
+  }
+
+  function purchasePlayer(playerId) {
+    if (state.phase !== "complete") {
+      toast("Purchases only between seasons");
+      return;
+    }
+    if (!ALLTIME) return;
+    const player = ALLTIME.players.find((p) => p.id === playerId);
+    if (!player) return;
+    if ((state.ownedPlayerIds || []).includes(playerId)) {
+      toast("Already owned");
+      return;
+    }
+    if ((state.coins || 0) < player.cost) {
+      toast("Not enough coins");
+      return;
+    }
+    state.coins -= player.cost;
+    state.ownedPlayerIds = (state.ownedPlayerIds || []).concat([playerId]);
+    // Invalidate cached effective roster by clearing nothing — effectiveRoster rebuilds from base+owned
+    save();
+    updateCoinUI();
+    renderShopOwned();
+    renderShopGrid();
+    toast(`Signed ${player.n} (${player.ovr} OVR) · #1 ${CFBRosterEngine.depthBucket(player.p)}`);
+  }
+
   function startNextSeason() {
     if (state.phase !== "complete" || !state.teamId) return;
     const archived = archiveCurrentSeason();
@@ -1069,8 +1342,10 @@
     const sel = $("#depthTeamSelect");
     if (sel) sel.innerHTML = "";
     save();
-    renderSeason();
+    if ($("#view-shop")) $("#view-shop").hidden = true;
+    showSeason();
     switchTab("schedule");
+    updateCoinUI();
     toast(
       archived
         ? `${archived.year} archived · ${nextYear} schedule generated`
@@ -1092,16 +1367,24 @@
   }
 
   async function simGame(g, weekLabel) {
-    const home = team(g.homeId) || stubTeam(g.homeId, "Home");
-    const away = team(g.awayId) || stubTeam(g.awayId, "Away");
+    const home = effectiveTeam(g.homeId) || stubTeam(g.homeId, "Home");
+    const away = effectiveTeam(g.awayId) || stubTeam(g.awayId, "Away");
     await loadRosters([g.homeId, g.awayId]);
+    const homeRoster =
+      String(g.homeId) === String(state.teamId)
+        ? await effectiveRoster(g.homeId)
+        : rosterCache[g.homeId] || null;
+    const awayRoster =
+      String(g.awayId) === String(state.teamId)
+        ? await effectiveRoster(g.awayId)
+        : rosterCache[g.awayId] || null;
     return CFBSim.simulateGame(home, away, {
       eventId: g.eventId,
       week: weekLabel != null ? weekLabel : g.week,
       neutralSite: g.neutralSite,
       seasonSeed: state.seasonSeed,
-      homeRoster: rosterCache[g.homeId] || null,
-      awayRoster: rosterCache[g.awayId] || null,
+      homeRoster,
+      awayRoster,
       label: g.label || null,
       bowl: g.bowl || null,
       round: g.round || null,
@@ -1110,7 +1393,7 @@
 
   async function simNextWeek() {
     if (state.phase === "complete") {
-      startNextSeason();
+      openShop();
       return;
     }
 
@@ -1357,9 +1640,17 @@
   function pickTeam(id) {
     const keepHistory = Array.isArray(state.history) ? state.history : [];
     const keepYear = state.seasonYear || 2026;
+    const keepCoins = typeof state.coins === "number" ? state.coins : CFBEconomy.STARTING_COINS;
+    const keepOwned = Array.isArray(state.ownedPlayerIds) ? state.ownedPlayerIds : [];
+    const keepClaimed = state.claimedGoals && typeof state.claimedGoals === "object" ? state.claimedGoals : {};
+    const keepPayout = state.lastSeasonPayout || null;
     state.teamId = id;
     state.seasonYear = keepYear;
     state.history = keepHistory;
+    state.coins = keepCoins;
+    state.ownedPlayerIds = keepOwned;
+    state.claimedGoals = keepClaimed;
+    state.lastSeasonPayout = keepPayout;
     state.currentWeek = 1;
     state.results = {};
     state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + keepYear);
@@ -1372,6 +1663,7 @@
     loadRoster(id); // warm cache
     showSeason();
     switchTab("schedule");
+    updateCoinUI();
     toast(keepYear + " season · " + team(id).shortName);
   }
 
@@ -1412,6 +1704,13 @@
     const res = await fetch("data/cfb-2026.json");
     if (!res.ok) throw new Error("Failed to load data");
     DATA = await res.json();
+    try {
+      const ar = await fetch("data/alltime-players.json");
+      if (ar.ok) ALLTIME = await ar.json();
+    } catch (e) {
+      console.warn("alltime catalog", e);
+      ALLTIME = null;
+    }
     populateConfFilter();
     renderPicker();
 
@@ -1449,11 +1748,30 @@
     );
     $("#depthTeamSelect").addEventListener("change", () => renderDepth());
 
+    // Shop controls
+    const bindShop = () => {
+      const search = $("#shopSearch");
+      const teamF = $("#shopTeamFilter");
+      const posF = $("#shopPosFilter");
+      const sortF = $("#shopSort");
+      if (search) search.addEventListener("input", () => { shopFilter.q = search.value; renderShopGrid(); });
+      if (teamF) teamF.addEventListener("change", () => { shopFilter.teamId = teamF.value; renderShopGrid(); });
+      if (posF) posF.addEventListener("change", () => { shopFilter.pos = posF.value; renderShopGrid(); });
+      if (sortF) sortF.addEventListener("change", () => { shopFilter.sort = sortF.value; renderShopGrid(); });
+      const back = $("#btnShopBack");
+      if (back) back.addEventListener("click", () => closeShopToRecap());
+      const go = $("#btnShopStartSeason");
+      if (go) go.addEventListener("click", () => startNextSeason());
+    };
+    bindShop();
+
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {
       showSeason();
+      updateCoinUI();
     } else {
       showPicker();
+      updateCoinUI();
     }
   }
 

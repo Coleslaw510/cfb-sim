@@ -15,7 +15,7 @@ python3 -m http.server 8765
 
 Open [http://localhost:8765](http://localhost:8765).
 
-Progress is stored in `localStorage` (`cfb-sim-2026-v5`). Older `v1`–`v4` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year, rolls forward with the same rosters/ratings, and **generates a new regular-season schedule** (season 1 keeps the real 2026 ESPN slate).
+Progress is stored in `localStorage` (`cfb-sim-2026-v6`). Older `v1`–`v5` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year, rolls forward with the same rosters/ratings, and **generates a new regular-season schedule** (season 1 keeps the real 2026 ESPN slate).
 
 ## Features
 
@@ -28,9 +28,11 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v5`). Older `v1`–`v4` save
 7. Conference standings + retuned sim Top 25
 8. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
 9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
-10. End-of-season recap + **Start next season** (same rosters, new generated schedule)
-11. **History** tab — archived years (record, conf, rank, bowl/CFP)
-12. Persist / reset (History preserved)
+10. End-of-season recap + **coin payouts** for season goals
+11. **All-Time Shop** between seasons — buy real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
+12. **Start next season** (same ESPN base rosters + owned shop players, new generated schedule)
+13. **History** tab — archived years (record, conf, rank, bowl/CFP)
+14. Persist / reset (History, coins, and owned shop players preserved)
 
 ## Data sources
 
@@ -167,7 +169,7 @@ The **Season stats** tab shows:
 - Your team’s cumulative leaders as **season totals** (Yds, TD, C/A, …) with class year
 - FBS leaders boards ranked by **total yards** (min-game qualifiers); **medals only here**
 
-Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v5`) — no separate counter to reset beyond **Reset season**.
+Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v6`) — no separate counter to reset beyond **Reset season**.
 
 
 ## Multi-year schedule generation
@@ -183,6 +185,35 @@ Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v5`) �
 5. **Weeks** — structure similar to ESPN (weeks 1–15); non-conf tends early, conference mid/late, bye weeks OK; never two games for one team in the same week.
 
 Rosters are **not** aged yet; class year is stored and displayed for future advancement.
+
+
+
+## Coin economy & All-Time Shop
+
+Between seasons (after the recap, before **Start next season**) you can open the **All-Time Shop**.
+
+### Coins
+- Starting balance: **100** coins on a new save.
+- Season goals pay out once per completed year (stored under `claimedGoals` so they cannot double-pay).
+- Goals include win thresholds (6/8/10/11/12+), undefeated regular season, conference championship appearance/win, bowl appearance/win, CFP berth, each CFP win, national title, and finishing Top 25 / Top 10 / #1.
+- Balance and owned players persist across seasons in `localStorage` (`cfb-sim-2026-v6`).
+
+### Shop catalog
+- Real historical CFB players only (no invented names), browsable by school and position.
+- Coverage: all current FBS schools; **dozens** of legends for Power programs + Notre Dame; solid G5 sets; lighter lists elsewhere (~1,200+ players total — see `data/alltime-players.json`).
+- Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(10 + (ovr-39)² × 0.35)` (e.g. OVR 70 ≈ 346, OVR 85 ≈ 751, OVR 99 ≈ 1270).
+
+### Purchase behavior
+- Buying a player adds them to **your** team's roster only (ESPN rosters remain the default for every other school).
+- They are inserted at **#1 on the depth chart** for their position (existing players shift down; nobody is deleted).
+- Soft **rating boost** on your offense/defense from owned OVRs (capped) so purchases affect sim outcomes without breaking the engine.
+- Architecture: `js/roster-engine.js` is shared so a future **Recruiting mode** can reuse insert/boost rules with different eligibility.
+
+Rebuild the catalog:
+
+```bash
+python3 scripts/build_alltime_catalog.py
+```
 
 ## Limitations
 
