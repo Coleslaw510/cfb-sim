@@ -35,6 +35,10 @@
       <div class="hero">
         <h1>Pick your school</h1>
         <p>Choose an FBS team, load its real 2026 ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>
+        <div class="hero-actions">
+          <button type="button" class="btn btn-ghost" id="btnBrowseShop">Browse All-Time Shop</button>
+          <span class="muted small">Check the catalog (and spend starting coins) before you sim.</span>
+        </div>
       </div>
       <div class="filters">
         <input type="search" id="teamSearch" placeholder="Search teams…" autocomplete="off" />
@@ -59,6 +63,7 @@
           </div>
           <button type="button" class="btn btn-primary" id="btnSimWeek">Sim next week</button>
           <button type="button" class="btn btn-ghost" id="btnSimPostseason" hidden>Sim rest of postseason</button>
+          <button type="button" class="btn btn-ghost" id="btnPreseasonShop" hidden>All-Time Shop</button>
         </div>
       </div>
 
@@ -135,9 +140,9 @@
     <section id="view-shop" class="view" hidden>
       <div class="shop-header">
         <div>
-          <div class="eyebrow">Between seasons</div>
+          <div class="eyebrow" id="shopEyebrow">Between seasons</div>
           <h1>All-Time Shop</h1>
-          <p class="muted">Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else.</p>
+          <p class="muted" id="shopBlurb">Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else.</p>
         </div>
         <div class="shop-header-actions">
           <div class="coin-chip large" title="Your balance">

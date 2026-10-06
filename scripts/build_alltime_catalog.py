@@ -234,11 +234,27 @@ T("84","iu","Indiana",[
  ("Ted Kluszewski","OL",70),("Tegray Scales","LB",84),("Eric Moore","OL",82),
 ])
 T("2294","iowa","Iowa",[
- ("Chuck Long","QB",90),("Brad Banks","QB",86),("Ricky Stanzi","QB",84),("Nate Stanley","QB",80),
- ("Tavian Banks","RB",88),("Sedrick Johnson","RB",76),("Akrum Wadley","RB",84),("Tim Dwight","WR",88),
- ("Marvin McNutt","WR",86),("Derrell Johnson-Koulianos","WR",82),("Dallas Clark","TE",92),("T.J. Hockenson","TE",90),
- ("Noah Fant","TE",88),("Andre Tippett","LB",94),("Chad Greenway","LB",90),("Josey Jewell","LB",88),
- ("Nile Kinnick","RB",95),("Robert Gallery","OL",90),("Nate Kaeding","K",88),
+ # Ferentz-era / notable QBs (starters ~2000–present) + program legends
+ ("Chuck Long","QB",90),("Brad Banks","QB",86),("Drew Tate","QB",84),("Ricky Stanzi","QB",84),
+ ("C.J. Beathard","QB",83),("Nate Stanley","QB",80),("James Vandenberg","QB",76),
+ ("Nathan Chandler","QB",75),("Kyle McCann","QB",74),("Spencer Petras","QB",70),
+ # RBs — post-2000 standouts + legends already catalogued
+ ("Nile Kinnick","RB",95),("Shonn Greene","RB",92),("Ladell Betts","RB",88),("Tavian Banks","RB",88),
+ ("Kaleb Johnson","RB",88),("Albert Young","RB",86),("Akrum Wadley","RB",84),("Fred Russell","RB",84),
+ ("Marcus Coker","RB",82),("Sedrick Shaw","RB",82),("Mark Weisman","RB",78),
+ # WRs
+ ("Tim Dwight","WR",88),("Marvin McNutt","WR",86),("Kevin Kasper","WR",84),
+ ("Derrell Johnson-Koulianos","WR",82),("Kevonte Martin-Manley","WR",82),("Kahlil Hill","WR",82),
+ ("Clinton Solomon","WR",80),("Ihmir Smith-Marsette","WR",80),
+ # TEs (Tight End U)
+ ("Dallas Clark","TE",92),("T.J. Hockenson","TE",90),("Sam LaPorta","TE",90),("Noah Fant","TE",88),
+ ("George Kittle","TE",86),("Scott Chandler","TE",84),("C.J. Fiedorowicz","TE",82),("Tony Moeaki","TE",82),
+ # Elite OL only (All-Big Ten / NFL draft caliber)
+ ("Brandon Scherff","OL",94),("Tristan Wirfs","OL",93),("Robert Gallery","OL",90),("Tyler Linderbaum","OL",92),
+ ("Eric Steinbach","OL",90),("Marshal Yanda","OL",88),("Bryan Bulaga","OL",88),("Riley Reiff","OL",86),
+ ("James Daniels","OL",86),("Austin Blythe","OL",84),
+ # Existing defense / ST kept
+ ("Andre Tippett","LB",94),("Chad Greenway","LB",90),("Josey Jewell","LB",88),("Nate Kaeding","K",88),
 ])
 T("275","wis","Wisconsin",[
  ("Ron Dayne","RB",96),("Montee Ball","RB",92),("Jonathan Taylor","RB",95),("Melvin Gordon","RB",93),

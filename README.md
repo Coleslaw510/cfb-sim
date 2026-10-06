@@ -29,7 +29,7 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v7`). Older `v1`–`v6` save
 8. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
 9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
 10. End-of-season recap + **coin payouts** for season goals
-11. **All-Time Shop** between seasons — buy real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
+11. **All-Time Shop** from the team picker / pre-season (browse + starting-coin buys) and between seasons — real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
 12. **Start next season** (same ESPN base rosters + owned shop players, new generated schedule)
 13. **History** tab — archived years (record, conf, rank, bowl/CFP)
 14. Persist / reset (History, coins, and owned shop players preserved)
@@ -193,17 +193,17 @@ Rosters are **not** aged yet; class year is stored and displayed for future adva
 
 ## Coin economy & All-Time Shop
 
-Between seasons (after the recap, before **Start next season**) you can open the **All-Time Shop**.
+Open the **All-Time Shop** from the **team picker** (**Browse All-Time Shop**) or in **pre-season** (after picking a team, before you sim a game), and again **between seasons** (after the recap, before **Start next season**). Between-season flow is unchanged.
 
 ### Coins
-- Starting balance: **100** coins on a new save.
+- Starting balance: **100** coins on a new save (enough to browse and pick up cheaper catalog players before year one).
 - Season goals pay out once per completed year (stored under `claimedGoals` so they cannot double-pay).
 - Goals include win thresholds (6/8/10/11/12+), undefeated regular season, conference championship appearance/win, bowl appearance/win, CFP berth, each CFP win, national title, and finishing Top 25 / Top 10 / #1.
 - Balance and owned players persist across seasons in `localStorage` (`cfb-sim-2026-v7`).
 
 ### Shop catalog
 - Real historical CFB players only (no invented names), browsable by school and position.
-- Coverage: all current FBS schools; **dozens** of legends for Power programs + Notre Dame; solid G5 sets; lighter lists elsewhere (~1,200+ players total — see `data/alltime-players.json`).
+- Coverage: all current FBS schools; **dozens** of legends for Power programs + Notre Dame; solid G5 sets; lighter lists elsewhere (~1,300+ players total — see `data/alltime-players.json`). Iowa has deep post-2000 skill + elite OL coverage for Hawkeye fans.
 - Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(10 + (ovr-39)² × 0.35)` (e.g. OVR 70 ≈ 346, OVR 85 ≈ 751, OVR 99 ≈ 1270).
 
 ### Purchase behavior

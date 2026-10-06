@@ -28,6 +28,8 @@
 
   let ALLTIME = null; // { players, teams, ... } catalog
   let shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
+  /** Where the shop was opened from: "recap" (between seasons) | "picker" | "season" (pre-season). */
+  let shopReturn = "recap";
 
   const rosterCache = {}; // teamId -> roster json
   const $ = (sel) => document.querySelector(sel);
@@ -265,7 +267,19 @@
     const shopBal = $("#shopCoinBalance");
     if (bal) bal.textContent = String(state.coins || 0);
     if (shopBal) shopBal.textContent = String(state.coins || 0);
-    if (chip) chip.hidden = !state.teamId;
+    // Always show balance (including starting coins on the team picker).
+    if (chip) chip.hidden = false;
+  }
+
+  /** True before any games have been simmed this season (picker or week-1 blank slate). */
+  function isPreseasonShopWindow() {
+    if (state.phase === "complete") return false;
+    const results = state.results && typeof state.results === "object" ? state.results : {};
+    return Object.keys(results).length === 0 && (state.phase === "regular" || !state.teamId);
+  }
+
+  function canPurchaseInShop() {
+    return state.phase === "complete" || isPreseasonShopWindow();
   }
 
   function awardSeasonCoinsIfNeeded() {
@@ -388,6 +402,7 @@
     const btnChunk = $("#btnSimPostseason");
     $("#recordLabel").textContent = rec.w + "–" + rec.l;
 
+    const btnPreShop = $("#btnPreseasonShop");
     if (state.phase === "regular") {
       const next = state.currentWeek;
       const done = next > maxWeek();
@@ -397,23 +412,27 @@
         btn.disabled = false;
         btn.textContent = "Start postseason";
         btnChunk.hidden = true;
+        if (btnPreShop) btnPreShop.hidden = true;
       } else {
         $("#weekLabel").textContent = "Ready for Week " + next;
         btn.disabled = false;
         btn.textContent = "Sim Week " + next;
         btnChunk.hidden = true;
+        if (btnPreShop) btnPreShop.hidden = !isPreseasonShopWindow();
       }
     } else if (state.phase === "complete") {
       $("#weekLabel").textContent = (state.seasonYear || 2026) + " season complete";
       btn.disabled = false;
       btn.textContent = "All-Time Shop";
       btnChunk.hidden = true;
+      if (btnPreShop) btnPreShop.hidden = true;
     } else {
       $("#weekLabel").textContent = phaseLabel();
       btn.disabled = false;
       btn.textContent = "Sim " + shortPhase(state.phase);
       btnChunk.hidden = false;
       btnChunk.textContent = "Sim rest of postseason";
+      if (btnPreShop) btnPreShop.hidden = true;
     }
 
     renderSchedule();
@@ -1151,33 +1170,106 @@
   }
 
 
-  /* ---------- All-Time Shop (between seasons) ---------- */
+  /* ---------- All-Time Shop (between seasons + pre-season browse) ---------- */
   function showShop() {
     $("#view-picker").hidden = true;
     $("#view-season").hidden = true;
     $("#view-shop").hidden = false;
-    $("#topbarActions").hidden = false;
+    $("#topbarActions").hidden = shopReturn === "picker";
     updateCoinUI();
   }
 
-  function openShop() {
-    if (state.phase !== "complete" || !state.teamId) {
-      toast("Shop opens after the season ends");
-      return;
+  function configureShopChrome() {
+    const eyebrow = $("#shopEyebrow");
+    const blurb = $("#shopBlurb");
+    const back = $("#btnShopBack");
+    const go = $("#btnShopStartSeason");
+    const between = shopReturn === "recap";
+    if (eyebrow) {
+      eyebrow.textContent = between ? "Between seasons" : "Pre-season";
     }
-    awardSeasonCoinsIfNeeded();
+    if (blurb) {
+      blurb.textContent = between
+        ? "Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else."
+        : "Browse the catalog before you sim. Starting coins can buy players now — they join your depth chart when you pick a team (or right away if you already have). Between-season shop stays available after each year.";
+    }
+    if (back) {
+      back.textContent = between ? "Back to recap" : (shopReturn === "picker" ? "Back to team pick" : "Back to season");
+    }
+    if (go) {
+      go.hidden = !between;
+      go.textContent = "Start next season";
+    }
+  }
+
+  function refreshShopPanels() {
     populateShopTeamFilter();
     renderShopGoals();
     renderShopPayout();
     renderShopOwned();
     renderShopGrid();
+    configureShopChrome();
     showShop();
   }
 
-  function closeShopToRecap() {
+  /** Between-season shop (after a completed year). */
+  function openShop() {
+    if (state.phase !== "complete" || !state.teamId) {
+      toast("Between-season shop opens after the year ends — use Browse All-Time Shop before you sim");
+      return;
+    }
+    shopReturn = "recap";
+    awardSeasonCoinsIfNeeded();
+    refreshShopPanels();
+  }
+
+  /** From team picker — browse (and optionally buy with starting coins) before picking. */
+  function openShopFromPicker() {
+    shopReturn = "picker";
+    // Prefer showing Iowa for Cole when opening fresh from picker.
+    if (ALLTIME && ALLTIME.teams && ALLTIME.teams["2294"] && !shopFilter.teamId) {
+      shopFilter.teamId = "2294";
+    }
+    refreshShopPanels();
+    const teamF = $("#shopTeamFilter");
+    if (teamF && shopFilter.teamId) teamF.value = shopFilter.teamId;
+    renderShopGrid();
+  }
+
+  /** After a team is picked but before any games are simmed. */
+  function openShopFromPreseason() {
+    if (!isPreseasonShopWindow()) {
+      toast("Pre-season shop is available before you sim a game");
+      return;
+    }
+    shopReturn = "season";
+    if (state.teamId && ALLTIME && !shopFilter.teamId) {
+      // Prefer filtering to the user's school when known in DATA mapping — Iowa id is 2294
+      const t = team(state.teamId);
+      if (t && /iowa/i.test(t.name) && !/state/i.test(t.name)) shopFilter.teamId = "2294";
+    }
+    refreshShopPanels();
+    const teamF = $("#shopTeamFilter");
+    if (teamF && shopFilter.teamId) teamF.value = shopFilter.teamId;
+    renderShopGrid();
+  }
+
+  function closeShop() {
     $("#view-shop").hidden = true;
+    if (shopReturn === "picker") {
+      showPicker();
+      updateCoinUI();
+      return;
+    }
     showSeason();
-    switchTab("recap");
+    if (shopReturn === "recap") switchTab("recap");
+    else switchTab("schedule");
+    updateCoinUI();
+  }
+
+  function closeShopToRecap() {
+    shopReturn = "recap";
+    closeShop();
   }
 
   function populateShopTeamFilter() {
@@ -1308,8 +1400,8 @@
   }
 
   function purchasePlayer(playerId) {
-    if (state.phase !== "complete") {
-      toast("Purchases only between seasons");
+    if (!canPurchaseInShop()) {
+      toast("Purchases only pre-season or between seasons");
       return;
     }
     if (!ALLTIME) return;
@@ -1804,11 +1896,15 @@
       if (posF) posF.addEventListener("change", () => { shopFilter.pos = posF.value; renderShopGrid(); });
       if (sortF) sortF.addEventListener("change", () => { shopFilter.sort = sortF.value; renderShopGrid(); });
       const back = $("#btnShopBack");
-      if (back) back.addEventListener("click", () => closeShopToRecap());
+      if (back) back.addEventListener("click", () => closeShop());
       const go = $("#btnShopStartSeason");
       if (go) go.addEventListener("click", () => startNextSeason());
     };
     bindShop();
+    const browse = $("#btnBrowseShop");
+    if (browse) browse.addEventListener("click", () => openShopFromPicker());
+    const preShop = $("#btnPreseasonShop");
+    if (preShop) preShop.addEventListener("click", () => openShopFromPreseason());
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {

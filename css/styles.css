@@ -640,3 +640,12 @@ table.rank-table tr.mine { background: #f3f7ff; }
   border: 1px solid #f0d9a0;
 }
 .recap-coins h3 { margin: 0 0 6px; font-size: 14px; color: #7a5b10; }
+
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
