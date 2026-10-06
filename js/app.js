@@ -4,22 +4,27 @@
   const STORAGE_KEY = "cfb-sim-2026-v6";
   const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5"];
   let DATA = null;
-  let state = {
-    teamId: null,
-    seasonYear: 2026,
-    currentWeek: 1,
-    results: {},
-    seasonSeed: Date.now() % 1e9,
-    phase: "regular", // regular | conf-champ | cfp-first | bowls | cfp-quarters | cfp-semis | cfp-championship | complete
-    postseason: null, // built package + generated games
-    history: [], // archived seasons { year, teamId, teamName, record, confRecord, finalRank, bowlResult, note }
-    generatedSchedule: null, // { year, schedules, games } for seasonYear > 2026
-    // Coin economy + All-Time Shop (between seasons). Recruiting can reuse owned/roster engine later.
-    coins: typeof CFBEconomy !== "undefined" ? CFBEconomy.STARTING_COINS : 100,
-    ownedPlayerIds: [], // catalog ids permanently on user's program
-    claimedGoals: {}, // { [seasonYear]: [goalId, ...] } — prevents double-pay
-    lastSeasonPayout: null, // { year, total, lines }
-  };
+
+  function createFreshState() {
+    return {
+      teamId: null,
+      seasonYear: 2026,
+      currentWeek: 1,
+      results: {},
+      seasonSeed: Date.now() % 1e9,
+      phase: "regular", // regular | conf-champ | cfp-first | bowls | cfp-quarters | cfp-semis | cfp-championship | complete
+      postseason: null, // built package + generated games
+      history: [], // archived seasons { year, teamId, teamName, record, confRecord, finalRank, bowlResult, note }
+      generatedSchedule: null, // { year, schedules, games } for seasonYear > 2026
+      // Coin economy + All-Time Shop (between seasons). Recruiting can reuse owned/roster engine later.
+      coins: typeof CFBEconomy !== "undefined" ? CFBEconomy.STARTING_COINS : 100,
+      ownedPlayerIds: [], // catalog ids permanently on user's program
+      claimedGoals: {}, // { [seasonYear]: [goalId, ...] } — prevents double-pay
+      lastSeasonPayout: null, // { year, total, lines }
+    };
+  }
+
+  let state = createFreshState();
 
   let ALLTIME = null; // { players, teams, ... } catalog
   let shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
@@ -347,6 +352,7 @@
   function showPicker() {
     $("#view-picker").hidden = false;
     $("#view-season").hidden = true;
+    if ($("#view-shop")) $("#view-shop").hidden = true;
     $("#topbarActions").hidden = true;
   }
 
@@ -1684,6 +1690,42 @@
     toast("Season reset · history kept");
   }
 
+  /** Remove every localStorage key this game writes (current + legacy). Auto-save still works after. */
+  function wipePersistedKeys() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+      const extra = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf("cfb-sim") === 0) extra.push(k);
+      }
+      extra.forEach((k) => localStorage.removeItem(k));
+    } catch (_) { /* ignore quota / private mode */ }
+  }
+
+  /** Full wipe: history, coins, shop buys, current season — back to team pick. */
+  function fullReset() {
+    if (!confirm("Full reset?\n\nThis clears history, coins, shop buys, and all progress. This cannot be undone.")) {
+      return;
+    }
+    wipePersistedKeys();
+    state = createFreshState();
+    shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
+    const sel = $("#depthTeamSelect");
+    if (sel) sel.innerHTML = "";
+    const search = $("#teamSearch");
+    if (search) search.value = "";
+    const conf = $("#confFilter");
+    if (conf) conf.value = "";
+    if ($("#view-shop")) $("#view-shop").hidden = true;
+    // Do not save() here — empty start has no team; first pick will auto-save again.
+    renderPicker();
+    showPicker();
+    updateCoinUI();
+    toast("Full reset · pick a team to start fresh");
+  }
+
   function switchTab(name) {
     const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history"];
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
@@ -1733,6 +1775,8 @@
       });
     });
     $("#btnReset").addEventListener("click", resetSeason);
+    const btnFullReset = $("#btnFullReset");
+    if (btnFullReset) btnFullReset.addEventListener("click", fullReset);
     $("#btnChangeTeam").addEventListener("click", () => {
       if (!confirm("Leave this season and pick a different team? History is kept; the in-progress season is discarded when you pick.")) return;
       state.teamId = null;
