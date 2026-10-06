@@ -24,10 +24,12 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v2`). Older `v1` saves are i
 3. **Real ESPN rosters** with a simple depth chart (QB / RB / WR / TE / OL / DL / LB / DB / K / P)
 4. **Sim next week** — simulates **all** FBS regular-season games that week
 5. Box score with **real player names** for pass / rush / rec leaders (from depth chart)
-6. Conference standings + sim Top 25
-7. **Postseason:** conference championships → 12-team CFP → other bowls → championship
-8. End-of-season recap card for your team
-9. Persist / reset
+6. Schedule rows show opponent **Top 25 rank badges** (poll as of that week / latest for upcoming)
+7. Conference standings + retuned sim Top 25
+8. **Season stats** — cumulative pass / rush / receiving for your team + FBS leaders
+9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
+10. End-of-season recap card for your team
+11. Persist / reset
 
 ## Data sources
 
@@ -76,15 +78,40 @@ Rosters are stored compactly per team (`name`, `jersey`, `position`, `class`). D
 
 ## Top 25 formula
 
+Retuned so strong **Power conference / Notre Dame** résumés and **quality wins** beat empty cupcake blowouts.
+
 For each FBS team after the latest simmed week:
 
 ```
-score = winPct×40 + SOS×25 + marginScore×15 + remainingOppStr×10 + apSeed×10
+score =
+  winPct×26
+  + confStrength×20
+  + qualityWins×24
+  + SOS×16
+  + marginScore×6
+  + remainingOppStr×4
+  + apSeed×4
+  + P4 hot/perfect bonuses
+  − bad-loss penalty
 ```
 
-- **SOS** = mean opponent overall of games already played (scaled 0–1).
-- **marginScore** maps average point differential (−20…+20) into 0–1.
-- **apSeed** keeps a soft memory of the preseason AP (rank 1 → 1.0, unranked → 0.2).
+| Term | Meaning |
+|------|---------|
+| **winPct** | Overall win percentage (regular season + conf championships). |
+| **confStrength** | Conference win% × prestige. Prestige: **P4 + Notre Dame = 1.0**, G6 ≈ 0.55, other ≈ 0.45. |
+| **qualityWins** | Wins vs high-`overall` / P4 / winning opponents (e.g. beating an OSU-caliber team lands hard). Soft-capped so volume alone doesn’t runaway. |
+| **SOS** | Mean opponent overall of games already played (0–1). |
+| **marginScore** | Soft `tanh` of avg margin / 14 — **blowouts vs cupcakes don’t dominate**. |
+| **remainingOppStr** | Mean remaining opponent overall (light). |
+| **apSeed** | Soft preseason AP memory (rank 1 → ~1.0, unranked → 0.15). |
+| **P4 bonuses** | Small bump for ≥9-game P4/ND teams at ≥.900 / undefeated. |
+| **bad-loss penalty** | Extra hit for losses to weak non-P4 teams. |
+
+**Sanity targets**
+
+- 11–1 Big Ten with a top-tier win (e.g. Ohio State) → roughly **top 8–12** (often higher).
+- Undefeated P4 / ND → typically **top 5**.
+- 9–3 G5 with huge margins → should **not** leapfrog elite P4 résumés without extraordinary SOS / quality wins.
 
 ## Postseason selection rules (2026 CFP format)
 
@@ -129,6 +156,17 @@ Including conference record, final Top 25 rank (if any), bowl/CFP result, and an
 - Weeks: ESPN calendar Weeks **1–15** (Week 14 may be empty; late / championship Saturday games may land in Week 15)
 
 The simulator **ignores real 2026 scores** and always re-sims from Week 1.
+
+## Season stats
+
+Every simmed box score attributes pass / rush / receiving lines to **depth-chart roster players** (when the roster JSON is loaded). The sim now loads FBS rosters for both sides of every game so names stay real across the league.
+
+The **Season stats** tab shows:
+
+- Your team’s cumulative leaders (comp/att, yards, TD, INT · rush att/yds/TD · rec/yds/TD)
+- FBS leaders boards (top yards) from the same attributions
+
+Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v3`) — no separate counter to reset beyond **Reset season**.
 
 ## Limitations
 

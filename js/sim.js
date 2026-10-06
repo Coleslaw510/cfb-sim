@@ -245,9 +245,39 @@
     return { w, l };
   }
 
+  /** Power 4 conferences + Notre Dame get strong poll weight. */
+  function isPowerOrND(t) {
+    if (!t) return false;
+    if (t.id === "87") return true; // Notre Dame
+    return POWER4.has(String(t.conferenceId));
+  }
+
+  function confPrestige(t) {
+    if (!t) return 0.4;
+    if (t.id === "87") return 1.0;
+    if (POWER4.has(String(t.conferenceId))) return 1.0;
+    if (G6.has(String(t.conferenceId))) return 0.55;
+    return 0.45;
+  }
+
+  /**
+   * Sim Top 25 — retuned for committee-ish priorities:
+   * strong P4/ND records, quality wins, real SOS; dampened blowout margins.
+   *
+   * score =
+   *   winPct×26 + confStrength×20 + qualityWins×24 + SOS×16
+   *   + marginScore×6 + remainingOppStr×4 + apSeed×4
+   */
   function computeTop25(fbsIds, teams, results, schedules, currentWeek) {
     const playedOppRatings = {};
     const remaining = {};
+    const regularish = results.filter((g) => !g.bowl || g.round === "conf-champ");
+
+    // Precompute records for quality-win opponent look-ups
+    const recCache = {};
+    for (const id of fbsIds) {
+      recCache[id] = teamRecord(regularish, id);
+    }
 
     for (const id of fbsIds) {
       playedOppRatings[id] = [];
@@ -257,7 +287,7 @@
         const opp = teams[g.opponentId];
         const rating = opp ? opp.overall : 50;
         if (g.week < currentWeek) {
-          const played = results.some((r) => r.eventId === g.eventId);
+          const played = regularish.some((r) => r.eventId === g.eventId);
           if (played) playedOppRatings[id].push(rating);
         } else if (g.week >= currentWeek) {
           remaining[id].push(rating);
@@ -266,9 +296,8 @@
     }
 
     const scored = fbsIds.map((id) => {
-      // Regular-season ranking uses all results that aren't bowls (conf champs count)
-      const regularish = results.filter((g) => !g.bowl || g.round === "conf-champ");
-      const rec = teamRecord(regularish, id);
+      const t = teams[id];
+      const rec = recCache[id] || { w: 0, l: 0, pf: 0, pa: 0, margin: 0 };
       const games = rec.w + rec.l;
       const winPct = games ? rec.w / games : 0;
       const sosArr = playedOppRatings[id];
@@ -276,15 +305,77 @@
       const avgMargin = games ? rec.margin / games : 0;
       const rem = remaining[id];
       const remStr = rem.length ? rem.reduce((a, b) => a + b, 0) / rem.length / 100 : 0.55;
-      const ap = teams[id].apRank;
-      const apSeed = ap ? (26 - ap) / 25 : 0.2;
-      const marginScore = clamp((avgMargin + 20) / 40, 0, 1);
+      const ap = t.apRank;
+      const apSeed = ap ? (26 - ap) / 25 : 0.15;
+
+      // Dampen margins: cupcake blowouts shouldn't dominate (cap ~±14, soft curve)
+      const marginScore = clamp((Math.tanh(avgMargin / 14) + 1) / 2, 0, 1);
+
+      // Conference strength: conf win% × prestige (P4/ND ≫ G5)
+      const conf = conferenceRecord(regularish, id, teams);
+      const confGames = conf.w + conf.l;
+      const confPct = confGames ? conf.w / confGames : winPct;
+      const prestige = confPrestige(t);
+      // Partial-season conf schedule still counts; few conf games → blend toward winPct
+      const confBlend = confGames >= 3 ? confPct : (confGames ? (confPct * confGames + winPct * (3 - confGames)) / 3 : winPct);
+      const confStrength = confBlend * prestige;
+      // Undefeated / near-perfect P4 bonus
+      if (prestige >= 1.0 && games >= 8 && winPct >= 0.9) {
+        // small additive handled via confStrength bump below in score
+      }
+
+      // Quality wins: reward beating strong / P4 / winning opponents
+      let qwRaw = 0;
+      let qwCount = 0;
+      let badLossPenalty = 0;
+      for (const g of regularish) {
+        if (g.homeId !== id && g.awayId !== id) continue;
+        const won = winnerId(g) === id;
+        const oppId = g.homeId === id ? g.awayId : g.homeId;
+        const opp = teams[oppId];
+        if (!opp) continue;
+        const oppRec = recCache[oppId] || teamRecord(regularish, oppId);
+        const oppGames = oppRec.w + oppRec.l;
+        const oppPct = oppGames ? oppRec.w / oppGames : 0.5;
+        const oppOvr = (opp.overall || 50) / 100;
+
+        if (won) {
+          let q = oppOvr * 0.85;
+          if (isPowerOrND(opp)) q += 0.22;
+          if ((opp.overall || 0) >= 88) q += 0.28;
+          else if ((opp.overall || 0) >= 80) q += 0.16;
+          else if ((opp.overall || 0) >= 72) q += 0.06;
+          q += oppPct * 0.35;
+          // Top-tier win (e.g. OSU-caliber) lands hard
+          if ((opp.overall || 0) >= 88 && isPowerOrND(opp)) q += 0.18;
+          qwRaw += q;
+          qwCount++;
+        } else {
+          // Losing to a weak non-P4 team hurts more than losing to elite
+          if (!isPowerOrND(opp) && (opp.overall || 50) < 68) badLossPenalty += 0.12;
+          else if (!isPowerOrND(opp) && oppPct < 0.4) badLossPenalty += 0.06;
+        }
+      }
+      // Average quality × diminishing returns on volume, scale 0–1-ish
+      const qwAvg = qwCount ? qwRaw / Math.max(qwCount, 1) : 0;
+      const qwVolume = 1 - Math.exp(-(qwRaw) / 2.8);
+      const qualityWins = clamp(qwAvg * 0.45 + qwVolume * 0.55, 0, 1.15);
+
+      const p4Hot = prestige >= 1.0 && games >= 9 && winPct >= 0.9 ? 3.5 : 0;
+      const p4Perfect = prestige >= 1.0 && games >= 9 && winPct >= 0.99 ? 2.5 : 0;
+
       const score =
-        winPct * 40 +
-        sos * 25 +
-        marginScore * 15 +
-        remStr * 10 +
-        apSeed * 10;
+        winPct * 26 +
+        confStrength * 20 +
+        qualityWins * 24 +
+        sos * 16 +
+        marginScore * 6 +
+        remStr * 4 +
+        apSeed * 4 +
+        p4Hot +
+        p4Perfect -
+        badLossPenalty * 8;
+
       return {
         id,
         score,
@@ -292,15 +383,111 @@
         winPct,
         sos: sos * 100,
         avgMargin,
+        confStrength,
+        qualityWins,
+        prestige,
       };
     });
 
     scored.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (b.rec.w !== a.rec.w) return b.rec.w - a.rec.w;
+      if ((b.qualityWins || 0) !== (a.qualityWins || 0)) return (b.qualityWins || 0) - (a.qualityWins || 0);
       return b.rec.margin - a.rec.margin;
     });
     return scored.map((row, i) => ({ rank: i + 1, ...row }));
+  }
+
+  /**
+   * Aggregate season player stats from box-score leaders.
+   * Returns { byTeam: { teamId: { passing: {name→stat}, rushing, receiving } }, leaders: {...} }
+   */
+  function accumulateSeasonStats(results, teamIds) {
+    const byTeam = {};
+    const ensure = (tid) => {
+      if (!byTeam[tid]) {
+        byTeam[tid] = { passing: {}, rushing: {}, receiving: {} };
+      }
+      return byTeam[tid];
+    };
+    const addPass = (bucket, p) => {
+      if (!p || !p.name) return;
+      const row = bucket[p.name] || { name: p.name, comp: 0, att: 0, yds: 0, td: 0, int: 0 };
+      row.comp += p.comp || 0;
+      row.att += p.att || 0;
+      row.yds += p.yds || 0;
+      row.td += p.td || 0;
+      row.int += p.int || 0;
+      bucket[p.name] = row;
+    };
+    const addRush = (bucket, p) => {
+      if (!p || !p.name) return;
+      const row = bucket[p.name] || { name: p.name, att: 0, yds: 0, td: 0 };
+      row.att += p.att || 0;
+      row.yds += p.yds || 0;
+      row.td += p.td || 0;
+      bucket[p.name] = row;
+    };
+    const addRec = (bucket, p) => {
+      if (!p || !p.name) return;
+      const row = bucket[p.name] || { name: p.name, rec: 0, yds: 0, td: 0 };
+      row.rec += p.rec || 0;
+      row.yds += p.yds || 0;
+      row.td += p.td || 0;
+      bucket[p.name] = row;
+    };
+
+    for (const g of results) {
+      const sides = [
+        { tid: g.homeId, leaders: g.homeLeaders },
+        { tid: g.awayId, leaders: g.awayLeaders },
+      ];
+      for (const side of sides) {
+        if (!side.leaders) continue;
+        if (teamIds && teamIds.length && !teamIds.includes(side.tid)) continue;
+        const b = ensure(side.tid);
+        addPass(b.passing, side.leaders.passing);
+        (side.leaders.rushing || []).forEach((p) => addRush(b.rushing, p));
+        (side.leaders.receiving || []).forEach((p) => addRec(b.receiving, p));
+      }
+    }
+
+    function toSorted(map, key) {
+      return Object.values(map).sort((a, b) => (b[key] || 0) - (a[key] || 0) || (b.td || 0) - (a.td || 0));
+    }
+
+    const fbsLeaders = { passing: {}, rushing: {}, receiving: {} };
+    for (const tid of Object.keys(byTeam)) {
+      const b = byTeam[tid];
+      Object.values(b.passing).forEach((p) => {
+        const row = fbsLeaders.passing[p.name + "|" + tid] || { ...p, teamId: tid };
+        // already accumulated per team; just register
+        fbsLeaders.passing[p.name + "|" + tid] = { ...p, teamId: tid };
+      });
+      Object.values(b.rushing).forEach((p) => {
+        fbsLeaders.rushing[p.name + "|" + tid] = { ...p, teamId: tid };
+      });
+      Object.values(b.receiving).forEach((p) => {
+        fbsLeaders.receiving[p.name + "|" + tid] = { ...p, teamId: tid };
+      });
+    }
+
+    return {
+      byTeam,
+      leaders: {
+        passing: toSorted(fbsLeaders.passing, "yds"),
+        rushing: toSorted(fbsLeaders.rushing, "yds"),
+        receiving: toSorted(fbsLeaders.receiving, "yds"),
+      },
+      teamLeaders(teamId) {
+        const b = byTeam[teamId] || { passing: {}, rushing: {}, receiving: {} };
+        return {
+          passing: toSorted(b.passing, "yds"),
+          rushing: toSorted(b.rushing, "yds"),
+          receiving: toSorted(b.receiving, "yds"),
+        };
+      },
+    };
   }
 
   function conferenceStandings(confId, fbsIds, teams, results) {
@@ -617,6 +804,9 @@
     teamRecord,
     conferenceRecord,
     computeTop25,
+    accumulateSeasonStats,
+    isPowerOrND,
+    confPrestige,
     hashSeed,
     conferenceStandings,
     buildConferenceChampionships,

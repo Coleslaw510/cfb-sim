@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v2";
+  const STORAGE_KEY = "cfb-sim-2026-v3";
   let DATA = null;
   let state = {
     teamId: null,
@@ -30,8 +30,9 @@
 
   function load() {
     try {
-      // Clear legacy v1 saves so schema changes don't corrupt
+      // Clear legacy saves so schema changes don't corrupt
       localStorage.removeItem("cfb-sim-2026-v1");
+      localStorage.removeItem("cfb-sim-2026-v2");
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
@@ -53,6 +54,71 @@
 
   function maxWeek() {
     return Math.max(...DATA.weeks.map((w) => w.week));
+  }
+
+  /** Results for poll as of entering `week` (regular-season games with week < week). */
+  function resultsBeforeWeek(week) {
+    return resultsList().filter((g) => {
+      if (g.round || g.bowl) return false;
+      const w = Number(g.week);
+      return Number.isFinite(w) && w < week;
+    });
+  }
+
+  /** Map of teamId -> rank (1–25) for a poll computed with given results / asOfWeek. */
+  function pollRankMap(results, asOfWeek) {
+    const poll = CFBSim.computeTop25(
+      DATA.fbsTeamIds,
+      DATA.teams,
+      results,
+      DATA.schedules,
+      asOfWeek
+    );
+    const map = {};
+    for (const row of poll) {
+      if (row.rank <= 25) map[row.id] = row.rank;
+    }
+    return map;
+  }
+
+  function latestPollRanks() {
+    return pollRankMap(resultsList(), currentPollWeek());
+  }
+
+  /**
+   * Opponent rank badge for a schedule game.
+   * Completed: sim poll entering that week (AP seed if no games yet).
+   * Upcoming: latest available poll.
+   */
+  function opponentRankBadge(opponentId, gameWeek, played) {
+    if (!opponentId || !DATA.teams[opponentId] || !DATA.teams[opponentId].isFbs) {
+      // Non-FBS: no badge
+      const t = DATA.teams[opponentId];
+      if (!t || !t.isFbs) return null;
+    }
+    let rank = null;
+    if (played) {
+      const prior = resultsBeforeWeek(gameWeek);
+      if (prior.length) {
+        rank = pollRankMap(prior, gameWeek)[opponentId] || null;
+      } else {
+        const ap = DATA.teams[opponentId] && DATA.teams[opponentId].apRank;
+        rank = ap || null;
+      }
+    } else {
+      rank = latestPollRanks()[opponentId] || null;
+      // Early season with no results: fall back to AP
+      if (rank == null && resultsList().length === 0) {
+        rank = (DATA.teams[opponentId] && DATA.teams[opponentId].apRank) || null;
+      }
+    }
+    return rank && rank <= 25 ? rank : null;
+  }
+
+  function formatOppLabel(prefix, opp, rank) {
+    const name = escapeHtml(opp.shortName || opp.name || "Opponent");
+    if (rank) return `${prefix} <span class="rank-badge">#${rank}</span> ${name}`;
+    return `${prefix} ${name}`;
   }
 
   async function loadRoster(teamId) {
@@ -201,6 +267,7 @@
     renderBox();
     renderStandings();
     renderTop25();
+    renderSeasonStats();
     renderDepth();
     renderPostseason();
     renderRecap();
@@ -229,11 +296,31 @@
   function renderSchedule() {
     const sched = (DATA.schedules[state.teamId] || []).slice().sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
     const next = state.currentWeek;
+    // Cache latest ranks once for upcoming games + historical polls by week
+    const latestRanks = latestPollRanks();
+    const histCache = {};
+    function ranksEnteringWeek(week) {
+      if (histCache[week]) return histCache[week];
+      const prior = resultsBeforeWeek(week);
+      if (!prior.length) {
+        // Preseason: AP ranks
+        const map = {};
+        for (const id of DATA.fbsTeamIds) {
+          const ap = DATA.teams[id].apRank;
+          if (ap && ap <= 25) map[id] = ap;
+        }
+        histCache[week] = map;
+        return map;
+      }
+      histCache[week] = pollRankMap(prior, week);
+      return histCache[week];
+    }
     const rows = sched.map((g) => {
       const opp = team(g.opponentId) || {
         name: g.opponentName,
         logo: `https://a.espncdn.com/i/teamlogos/ncaa/500/${g.opponentId}.png`,
         abbreviation: g.opponentAbbr,
+        shortName: g.opponentName,
       };
       const res = state.results[g.eventId];
       const isCurrent = state.phase === "regular" && g.week === next && !res;
@@ -245,13 +332,24 @@
         const win = mine > theirs;
         resultHtml = `<span class="result ${win ? "win" : "loss"}">${win ? "W" : "L"} ${mine}–${theirs}</span>`;
       }
+      const prefix = g.homeAway === "home" ? "vs" : "@";
+      let rank;
+      if (res) {
+        rank = ranksEnteringWeek(g.week)[g.opponentId] || null;
+      } else {
+        rank = latestRanks[g.opponentId] || null;
+        if (rank == null && resultsList().length === 0) {
+          rank = (opp.apRank) || null;
+        }
+        if (rank && rank > 25) rank = null;
+      }
       return `
         <div class="game-row ${res ? "played" : ""} ${isCurrent ? "current" : ""}" data-event="${g.eventId}">
           <div class="week-num">W${g.week}</div>
           <div class="opp">
             <img src="${opp.logo}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
             <div>
-              <div class="who">${g.homeAway === "home" ? "vs" : "@"} ${escapeHtml(opp.shortName || opp.name || g.opponentName)}</div>
+              <div class="who">${formatOppLabel(prefix, opp, rank)}</div>
               <div class="where">${where} · ${formatDate(g.date)}</div>
             </div>
           </div>
@@ -259,7 +357,7 @@
         </div>`;
     });
 
-    // Append user's postseason games to schedule
+    // Append user's postseason games to schedule (use latest poll ranks)
     const psGames = postseasonGamesForUser();
     for (const g of psGames) {
       const oppId = g.homeId === state.teamId ? g.awayId : g.homeId;
@@ -273,13 +371,14 @@
         resultHtml = `<span class="result ${win ? "win" : "loss"}">${win ? "W" : "L"} ${mine}–${theirs}</span>`;
       }
       const ha = g.homeId === state.teamId ? "vs" : "@";
+      const rank = (oppId && latestRanks[oppId]) || null;
       rows.push(`
         <div class="game-row ${res ? "played" : ""} postseason-row" data-event="${g.eventId}">
           <div class="week-num">${escapeHtml(shortRoundTag(g.round))}</div>
           <div class="opp">
             <img src="${opp.logo || ""}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
             <div>
-              <div class="who">${ha} ${escapeHtml(opp.shortName || opp.name || "TBD")}</div>
+              <div class="who">${formatOppLabel(ha, opp, rank)}</div>
               <div class="where">${escapeHtml(g.bowl || g.label || "Postseason")}</div>
             </div>
           </div>
@@ -481,6 +580,70 @@
             .join("")}
         </tbody>
       </table>`;
+  }
+
+  function renderSeasonStats() {
+    const el = $("#seasonStats");
+    if (!el) return;
+    const list = resultsList();
+    if (!list.length) {
+      el.innerHTML = '<div class="box-empty">Sim games to accumulate season stats for your roster.</div>';
+      return;
+    }
+    // Aggregate across all results (leaders use real names when rosters were loaded)
+    const agg = CFBSim.accumulateSeasonStats(list, null);
+    const mine = agg.teamLeaders(state.teamId);
+    const t = team(state.teamId);
+
+    function passTable(rows, limit) {
+      const slice = rows.slice(0, limit);
+      if (!slice.length) return '<p class="muted small">No passing stats yet.</p>';
+      return `<table class="rank-table stats-table">
+        <thead><tr><th>Player</th><th>C/A</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
+        <tbody>${slice.map((p) => {
+          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
+          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.comp}/${p.att}</td><td>${p.yds}</td><td>${p.td}</td><td>${p.int}</td></tr>`;
+        }).join("")}</tbody></table>`;
+    }
+    function rushTable(rows, limit) {
+      const slice = rows.slice(0, limit);
+      if (!slice.length) return '<p class="muted small">No rushing stats yet.</p>';
+      return `<table class="rank-table stats-table">
+        <thead><tr><th>Player</th><th>Att</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>${slice.map((p) => {
+          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
+          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.att}</td><td>${p.yds}</td><td>${p.td}</td></tr>`;
+        }).join("")}</tbody></table>`;
+    }
+    function recTable(rows, limit) {
+      const slice = rows.slice(0, limit);
+      if (!slice.length) return '<p class="muted small">No receiving stats yet.</p>';
+      return `<table class="rank-table stats-table">
+        <thead><tr><th>Player</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>${slice.map((p) => {
+          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
+          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.rec}</td><td>${p.yds}</td><td>${p.td}</td></tr>`;
+        }).join("")}</tbody></table>`;
+    }
+
+    el.innerHTML = `
+      <div class="stats-section">
+        <h3>${escapeHtml(t.shortName || t.name)} leaders</h3>
+        <div class="stats-grid">
+          <div class="stat-block"><h3>Passing</h3>${passTable(mine.passing, 5)}</div>
+          <div class="stat-block"><h3>Rushing</h3>${rushTable(mine.rushing, 6)}</div>
+          <div class="stat-block"><h3>Receiving</h3>${recTable(mine.receiving, 6)}</div>
+        </div>
+      </div>
+      <div class="stats-section">
+        <h3>FBS leaders</h3>
+        <p class="muted small" style="padding:0 4px 8px">Top yards among games with roster attributions (all FBS sides when rosters loaded).</p>
+        <div class="stats-grid">
+          <div class="stat-block"><h3>Passing</h3>${passTable(agg.leaders.passing, 10)}</div>
+          <div class="stat-block"><h3>Rushing</h3>${rushTable(agg.leaders.rushing, 10)}</div>
+          <div class="stat-block"><h3>Receiving</h3>${recTable(agg.leaders.receiving, 10)}</div>
+        </div>
+      </div>`;
   }
 
   /* ---------- Depth chart ---------- */
@@ -692,15 +855,15 @@
     let userBox = null;
     let count = 0;
 
-    // Prefetch user + opponent rosters for this week
-    const userGame = games.find((g) => g.homeId === state.teamId || g.awayId === state.teamId);
-    if (userGame) await loadRosters([userGame.homeId, userGame.awayId]);
+    // Prefetch rosters for every FBS side this week (season stats + box names)
+    const weekIds = [];
+    for (const g of games) {
+      weekIds.push(g.homeId, g.awayId);
+    }
+    await loadRosters(weekIds);
 
     for (const g of games) {
       if (state.results[g.eventId]) continue;
-      const needRoster = g.homeId === state.teamId || g.awayId === state.teamId;
-      if (needRoster) await loadRosters([g.homeId, g.awayId]);
-      // For non-user games, still try cache (may be empty → generic names)
       const box = await simGame(g, week);
       state.results[g.eventId] = box;
       count++;
@@ -865,12 +1028,10 @@
         (g) => g.round === round && !state.results[g.eventId] && g.homeId && g.awayId
       );
 
-      // Prefetch rosters for user-involved games
-      for (const g of games) {
-        if (g.homeId === state.teamId || g.awayId === state.teamId) {
-          await loadRosters([g.homeId, g.awayId]);
-        }
-      }
+      // Prefetch rosters for all games in this round (season stats)
+      const ids = [];
+      for (const g of games) ids.push(g.homeId, g.awayId);
+      await loadRosters(ids);
 
       let userBox = null;
       let count = 0;
@@ -953,13 +1114,14 @@
 
   function switchTab(name) {
     // Map 'recap' to showing recap panel via postseason tab area — we have a recap tab
-    const tabs = ["schedule", "box", "standings", "top25", "depth", "postseason", "recap"];
+    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap"];
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
     tabs.forEach((p) => {
       const el = $("#panel-" + p);
       if (el) el.hidden = p !== name;
     });
     if (name === "depth") renderDepth();
+    if (name === "stats") renderSeasonStats();
     if (name === "postseason") renderPostseason();
     if (name === "recap") renderRecap();
   }

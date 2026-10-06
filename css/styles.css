@@ -382,3 +382,33 @@ table.rank-table tr.mine { background: #f3f7ff; }
 .recap-summary { margin: 0; font-size: 13px; }
 
 #panel-recap .box-empty { padding: 28px 16px; }
+
+
+/* Rank badge on schedule */
+.rank-badge {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  margin-right: 2px;
+}
+
+/* Season stats */
+.stats-section { padding: 10px 8px 16px; }
+.stats-section + .stats-section { border-top: 1px solid var(--line); }
+.stats-section > h3 {
+  margin: 4px 8px 10px;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 0 4px;
+}
+@media (min-width: 720px) {
+  .stats-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.stats-table { font-size: 12px; }
+.stats-table th, .stats-table td { padding: 7px 6px; }

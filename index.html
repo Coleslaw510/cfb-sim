@@ -63,6 +63,7 @@
         <button type="button" class="tab" data-tab="depth">Depth chart</button>
         <button type="button" class="tab" data-tab="standings">Standings</button>
         <button type="button" class="tab" data-tab="top25">Top 25</button>
+        <button type="button" class="tab" data-tab="stats">Season stats</button>
         <button type="button" class="tab" data-tab="postseason">Postseason</button>
         <button type="button" class="tab" data-tab="recap">Recap</button>
       </nav>
@@ -94,9 +95,17 @@
       <div id="panel-top25" class="panel" hidden>
         <div class="panel-head">
           <h2>Sim Top 25</h2>
-          <p class="muted small">Formula: win% × 40 + SOS × 25 + margin/game × 15 + remaining strength × 10 + AP seed × 10. Documented in README.</p>
+          <p class="muted small">Weights win%, P4/ND conference strength, quality wins, and SOS — margins are dampened. See README.</p>
         </div>
         <div id="top25Table"></div>
+      </div>
+
+      <div id="panel-stats" class="panel" hidden>
+        <div class="panel-head">
+          <h2>Season stats</h2>
+          <p class="muted small">Cumulative pass / rush / receiving from depth-chart box scores. Your team + FBS leaders.</p>
+        </div>
+        <div id="seasonStats"></div>
       </div>
 
       <div id="panel-postseason" class="panel" hidden>
