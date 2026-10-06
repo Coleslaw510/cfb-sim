@@ -80,9 +80,13 @@
     return depthPlayer(roster, pos, slot, rng).name;
   }
 
+  /**
+   * Expected team points for modern FBS scoring (~28 PPG league average).
+   * Ratings in this dataset center near ~60, not 50.
+   */
   function expectedPoints(off, def, homeBoost) {
-    const base = 12 + (off - 50) * 0.55 - (def - 50) * 0.45 + homeBoost;
-    return clamp(base, 7, 52);
+    const base = 24.8 + (off - 60) * 0.50 - (def - 60) * 0.42 + homeBoost;
+    return clamp(base, 10, 56);
   }
 
   function simulateGame(homeTeam, awayTeam, meta) {
@@ -91,39 +95,46 @@
     );
     const rng = mulberry32(seed);
 
-    const homeBoost = meta.neutralSite ? 0 : 2.4;
+    const homeBoost = meta.neutralSite ? 0 : 2.5;
     const homeExp = expectedPoints(homeTeam.offense, awayTeam.defense, homeBoost);
     const awayExp = expectedPoints(awayTeam.offense, homeTeam.defense, 0);
 
-    const homeDrives = 10 + Math.floor(rng() * 4);
-    const awayDrives = 10 + Math.floor(rng() * 4);
+    // Modern CFB: ~11–14 possessions per side is common
+    const homeDrives = 11 + Math.floor(rng() * 4);
+    const awayDrives = 11 + Math.floor(rng() * 4);
 
     function scoreFromDrives(expPts, drives) {
       let pts = 0;
       let td = 0;
       let fg = 0;
       let to = 0;
-      const pScore = clamp(expPts / (drives * 4.2), 0.18, 0.72);
+      // ~5.45 pts per scoring drive on avg (mix of TDs/FGs) → divisor tracks expPts
+      const pScore = clamp(expPts / (drives * 5.45), 0.22, 0.78);
+      // Game-script variance: some days offenses click / stall without wall-to-wall shootouts
+      const tempo = clamp(0.90 + rng() * 0.22, 0.88, 1.14);
+      const pAdj = clamp(pScore * tempo, 0.18, 0.82);
       for (let i = 0; i < drives; i++) {
         const r = rng();
-        if (r < pScore * 0.62) {
+        // ~70% of scoring drives are TDs in modern FBS
+        if (r < pAdj * 0.70) {
           pts += 7;
           td += 1;
-        } else if (r < pScore) {
+        } else if (r < pAdj) {
           pts += 3;
           fg += 1;
-        } else if (r < pScore + 0.08) {
+        } else if (r < pAdj + 0.07) {
           to += 1;
         }
       }
-      if (rng() < 0.04) pts += 2;
+      if (rng() < 0.045) pts += 2; // safety
       return { pts, td, fg, to };
     }
 
     let homeS = scoreFromDrives(homeExp, homeDrives);
     let awayS = scoreFromDrives(awayExp, awayDrives);
 
-    if (homeS.pts + awayS.pts < 17) {
+    // Avoid ultra-low combined totals that feel pre-spread-era
+    if (homeS.pts + awayS.pts < 24) {
       if (rng() < 0.5) homeS.pts += 7;
       else awayS.pts += 7;
     }
@@ -142,19 +153,40 @@
     }
 
     function yardsBundle(pts, off, def, isHome) {
-      const passShare = 0.52 + (rng() - 0.5) * 0.18;
+      // Modern FBS lean pass-first but still allows grind-it-out / option looks
+      const passShare = clamp(0.58 + (rng() - 0.5) * 0.22 + (off - 60) * 0.0015, 0.44, 0.74);
       const totalOff = clamp(
-        280 + (off - def) * 3.2 + (pts - 24) * 6.5 + (rng() - 0.5) * 60,
-        140,
-        620
+        370 + (off - def) * 3.6 + (pts - 28) * 6.8 + (rng() - 0.5) * 75,
+        190,
+        700
       );
-      const passYds = Math.round(totalOff * passShare);
-      const rushYds = Math.round(totalOff - passYds);
-      const passAtt = clamp(Math.round(28 + passShare * 18 + (rng() - 0.5) * 8), 18, 55);
-      const completions = clamp(Math.round(passAtt * (0.55 + (off - 50) * 0.003 + (rng() - 0.5) * 0.08)), 8, passAtt - 2);
-      const rushAtt = clamp(Math.round(28 + (1 - passShare) * 16 + (rng() - 0.5) * 6), 20, 52);
-      const interceptions = Math.max(0, Math.round((rng() < 0.35 ? 1 : 0) + (rng() < 0.12 ? 1 : 0)));
-      const fumblesLost = Math.max(0, (rng() < 0.28 ? 1 : 0) + (rng() < 0.08 ? 1 : 0));
+      let passYds = Math.round(totalOff * passShare);
+      let rushYds = Math.round(totalOff - passYds);
+      // Soft floor: teams that put up points should rarely be stuck under ~100 pass yards
+      if (pts >= 17 && passYds < 105) {
+        const bump = 105 - passYds + Math.floor(rng() * 25);
+        passYds += bump;
+        rushYds = Math.max(40, rushYds - Math.floor(bump * 0.35));
+      } else if (pts >= 28 && passYds < 150) {
+        const bump = 150 - passYds + Math.floor(rng() * 30);
+        passYds += bump;
+        rushYds = Math.max(50, rushYds - Math.floor(bump * 0.3));
+      }
+      // Target ~6.5–8.0 YPA for average/good offenses; derive attempts from yards
+      const ypa = clamp(
+        6.5 + (off - 60) * 0.04 + (pts - 28) * 0.03 + (rng() - 0.5) * 1.5,
+        4.5,
+        11.8
+      );
+      const passAtt = clamp(Math.round(passYds / ypa + (rng() - 0.5) * 3), 18, 58);
+      const completions = clamp(
+        Math.round(passAtt * (0.615 + (off - 60) * 0.0028 + (rng() - 0.5) * 0.07)),
+        9,
+        passAtt - 1
+      );
+      const rushAtt = clamp(Math.round(29 + (1 - passShare) * 18 + (rng() - 0.5) * 6), 20, 55);
+      const interceptions = Math.max(0, Math.round((rng() < 0.32 ? 1 : 0) + (rng() < 0.10 ? 1 : 0)));
+      const fumblesLost = Math.max(0, (rng() < 0.25 ? 1 : 0) + (rng() < 0.07 ? 1 : 0));
       const turnovers = interceptions + fumblesLost;
       return {
         passYds,
@@ -166,7 +198,7 @@
         interceptions,
         fumblesLost,
         turnovers,
-        thirdDownConv: clamp(Math.round(4 + rng() * 8), 2, 12),
+        thirdDownConv: clamp(Math.round(4 + rng() * 9), 2, 14),
         thirdDownAtt: clamp(Math.round(11 + rng() * 5), 10, 18),
         timeOfPoss: null,
         isHome,
