@@ -66,6 +66,7 @@
         <button type="button" class="tab" data-tab="stats">Season stats</button>
         <button type="button" class="tab" data-tab="postseason">Postseason</button>
         <button type="button" class="tab" data-tab="recap">Recap</button>
+        <button type="button" class="tab" data-tab="history">History</button>
       </nav>
 
       <div id="panel-schedule" class="panel">
@@ -103,7 +104,7 @@
       <div id="panel-stats" class="panel" hidden>
         <div class="panel-head">
           <h2>Season stats</h2>
-          <p class="muted small">Cumulative pass / rush / receiving from depth-chart box scores. Your team + FBS leaders.</p>
+          <p class="muted small">Lead with yards/game (YPG) and TD/game · season totals alongside · FBS boards use min-game qualifiers.</p>
         </div>
         <div id="seasonStats"></div>
       </div>
@@ -114,6 +115,14 @@
 
       <div id="panel-recap" class="panel" hidden>
         <div class="box-empty">Complete the postseason to see your end-of-season recap.</div>
+      </div>
+
+      <div id="panel-history" class="panel" hidden>
+        <div class="panel-head">
+          <h2>Season history</h2>
+          <p class="muted small">Archived seasons for your school(s). Start next season from Recap to save the current year.</p>
+        </div>
+        <div id="historyPanel" class="box-empty">No history yet.</div>
       </div>
     </section>
   </main>

@@ -400,7 +400,8 @@
 
   /**
    * Aggregate season player stats from box-score leaders.
-   * Returns { byTeam: { teamId: { passing: {name→stat}, rushing, receiving } }, leaders: {...} }
+   * Tracks games played (gp) and exposes per-game rates (ypg / tdpg).
+   * FBS leaders are sorted by YPG with min-game / attempt qualifiers.
    */
   function accumulateSeasonStats(results, teamIds) {
     const byTeam = {};
@@ -412,7 +413,8 @@
     };
     const addPass = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, comp: 0, att: 0, yds: 0, td: 0, int: 0 };
+      const row = bucket[p.name] || { name: p.name, gp: 0, comp: 0, att: 0, yds: 0, td: 0, int: 0 };
+      row.gp += 1;
       row.comp += p.comp || 0;
       row.att += p.att || 0;
       row.yds += p.yds || 0;
@@ -422,7 +424,8 @@
     };
     const addRush = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, att: 0, yds: 0, td: 0 };
+      const row = bucket[p.name] || { name: p.name, gp: 0, att: 0, yds: 0, td: 0 };
+      row.gp += 1;
       row.att += p.att || 0;
       row.yds += p.yds || 0;
       row.td += p.td || 0;
@@ -430,7 +433,8 @@
     };
     const addRec = (bucket, p) => {
       if (!p || !p.name) return;
-      const row = bucket[p.name] || { name: p.name, rec: 0, yds: 0, td: 0 };
+      const row = bucket[p.name] || { name: p.name, gp: 0, rec: 0, yds: 0, td: 0 };
+      row.gp += 1;
       row.rec += p.rec || 0;
       row.yds += p.yds || 0;
       row.td += p.td || 0;
@@ -452,16 +456,56 @@
       }
     }
 
+    function withRates(row) {
+      const gp = row.gp || 0;
+      return {
+        ...row,
+        gp,
+        ypg: gp ? row.yds / gp : 0,
+        tdpg: gp ? row.td / gp : 0,
+      };
+    }
+
     function toSorted(map, key) {
-      return Object.values(map).sort((a, b) => (b[key] || 0) - (a[key] || 0) || (b.td || 0) - (a.td || 0));
+      return Object.values(map)
+        .map(withRates)
+        .sort((a, b) => (b[key] || 0) - (a[key] || 0) || (b.td || 0) - (a.td || 0) || (b.yds || 0) - (a.yds || 0));
+    }
+
+    function maxGp(rows) {
+      return rows.reduce((m, r) => Math.max(m, r.gp || 0), 0);
+    }
+
+    /** Min games so one-game flukes do not top boards; soft early in season. */
+    function minGamesFor(rows) {
+      const peak = maxGp(rows);
+      if (peak >= 6) return 4;
+      if (peak >= 3) return 3;
+      return Math.max(1, peak);
+    }
+
+    function qualify(rows, kind) {
+      const minG = minGamesFor(rows);
+      return rows.filter((p) => {
+        if ((p.gp || 0) < minG) return false;
+        if (kind === "pass") return (p.att || 0) >= minG * 10;
+        if (kind === "rush") return (p.att || 0) >= minG * 5;
+        if (kind === "rec") return (p.rec || 0) >= minG * 2;
+        return true;
+      });
+    }
+
+    function leadersByYpg(map, kind) {
+      const all = toSorted(map, "yds");
+      return qualify(all, kind).sort(
+        (a, b) => (b.ypg || 0) - (a.ypg || 0) || (b.yds || 0) - (a.yds || 0) || (b.td || 0) - (a.td || 0)
+      );
     }
 
     const fbsLeaders = { passing: {}, rushing: {}, receiving: {} };
     for (const tid of Object.keys(byTeam)) {
       const b = byTeam[tid];
       Object.values(b.passing).forEach((p) => {
-        const row = fbsLeaders.passing[p.name + "|" + tid] || { ...p, teamId: tid };
-        // already accumulated per team; just register
         fbsLeaders.passing[p.name + "|" + tid] = { ...p, teamId: tid };
       });
       Object.values(b.rushing).forEach((p) => {
@@ -472,19 +516,29 @@
       });
     }
 
+    const passPool = Object.values(fbsLeaders.passing).map(withRates);
+    const rushPool = Object.values(fbsLeaders.rushing).map(withRates);
+    const recPool = Object.values(fbsLeaders.receiving).map(withRates);
+
     return {
       byTeam,
+      qualifiers: {
+        passing: { minGames: minGamesFor(passPool), minAttPerGame: 10 },
+        rushing: { minGames: minGamesFor(rushPool), minAttPerGame: 5 },
+        receiving: { minGames: minGamesFor(recPool), minRecPerGame: 2 },
+      },
       leaders: {
-        passing: toSorted(fbsLeaders.passing, "yds"),
-        rushing: toSorted(fbsLeaders.rushing, "yds"),
-        receiving: toSorted(fbsLeaders.receiving, "yds"),
+        passing: leadersByYpg(fbsLeaders.passing, "pass"),
+        rushing: leadersByYpg(fbsLeaders.rushing, "rush"),
+        receiving: leadersByYpg(fbsLeaders.receiving, "rec"),
       },
       teamLeaders(teamId) {
         const b = byTeam[teamId] || { passing: {}, rushing: {}, receiving: {} };
         return {
-          passing: toSorted(b.passing, "yds"),
-          rushing: toSorted(b.rushing, "yds"),
-          receiving: toSorted(b.receiving, "yds"),
+          // Team view: lead with YPG, light floor so empty rows stay out
+          passing: toSorted(b.passing, "yds").filter((p) => (p.att || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
+          rushing: toSorted(b.rushing, "yds").filter((p) => (p.att || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
+          receiving: toSorted(b.receiving, "yds").filter((p) => (p.rec || 0) > 0).sort((a, b) => b.ypg - a.ypg || b.yds - a.yds),
         };
       },
     };

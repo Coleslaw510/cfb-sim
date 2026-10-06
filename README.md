@@ -15,7 +15,7 @@ python3 -m http.server 8765
 
 Open [http://localhost:8765](http://localhost:8765).
 
-Progress is stored in `localStorage` (`cfb-sim-2026-v2`). Older `v1` saves are ignored. Use **Reset season** to clear results for the current school.
+Progress is stored in `localStorage` (`cfb-sim-2026-v4`). Older `v1`–`v3` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year and rolls forward with the same rosters/ratings.
 
 ## Features
 
@@ -26,10 +26,11 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v2`). Older `v1` saves are i
 5. Box score with **real player names** for pass / rush / rec leaders (from depth chart)
 6. Schedule rows show opponent **Top 25 rank badges** (poll as of that week / latest for upcoming)
 7. Conference standings + retuned sim Top 25
-8. **Season stats** — cumulative pass / rush / receiving for your team + FBS leaders
+8. **Season stats** — lead with **YPG / TD/G** (totals alongside); gold/silver/bronze medals for top 3; FBS boards use min-game qualifiers
 9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
-10. End-of-season recap card for your team
-11. Persist / reset
+10. End-of-season recap + **Start next season** (same rosters)
+11. **History** tab — archived years (record, conf, rank, bowl/CFP)
+12. Persist / reset (History preserved)
 
 ## Data sources
 

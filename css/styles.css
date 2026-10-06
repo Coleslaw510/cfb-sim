@@ -412,3 +412,76 @@ table.rank-table tr.mine { background: #f3f7ff; }
 }
 .stats-table { font-size: 12px; }
 .stats-table th, .stats-table td { padding: 7px 6px; }
+
+
+/* Leader medals */
+.rank-col { width: 28px; text-align: center; }
+.medal {
+  display: inline-grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 11px; font-weight: 700;
+  color: #1a1a1a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+}
+.medal-gold { background: linear-gradient(145deg, #f6d365, #d4a017); color: #3b2a00; }
+.medal-silver { background: linear-gradient(145deg, #e8eaed, #9aa0a6); color: #2b2f36; }
+.medal-bronze { background: linear-gradient(145deg, #e0a070, #a65c2c); color: #2e1608; }
+.rank-num { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stat-lead { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.stats-note { padding: 0 8px 8px; margin: 0; }
+
+.recap-actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* History */
+.history-current { padding: 8px 10px 14px; border-bottom: 1px solid var(--line); }
+.history-list { padding: 4px 6px 12px; }
+.history-row {
+  display: grid;
+  grid-template-columns: 52px minmax(120px, 1.4fr) 64px 64px 48px minmax(100px, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.history-row.head {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  padding-top: 12px;
+}
+.history-row.current { background: #f3f7ff; border-radius: 10px; border-bottom: 0; }
+.history-row .hy { font-weight: 700; color: var(--accent); }
+.history-row .ht { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 0; }
+.history-row .ht img { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.history-row .hr, .history-row .hc, .history-row .hk { font-variant-numeric: tabular-nums; font-weight: 600; }
+.history-row .hb { color: var(--ink); font-size: 12px; }
+.history-note { font-weight: 400; margin-top: 2px; }
+@media (max-width: 720px) {
+  .history-row {
+    grid-template-columns: 44px 1fr;
+    grid-template-areas:
+      "y t"
+      "y meta";
+  }
+  .history-row.head { display: none; }
+  .history-row .hy { grid-area: y; }
+  .history-row .ht { grid-area: t; }
+  .history-row .hr,
+  .history-row .hc,
+  .history-row .hk,
+  .history-row .hb {
+    grid-column: 2;
+  }
+  .history-row .hr::before { content: "Rec "; color: var(--muted); font-weight: 500; }
+  .history-row .hc::before { content: "Conf "; color: var(--muted); font-weight: 500; }
+  .history-row .hk::before { content: "Rank "; color: var(--muted); font-weight: 500; }
+}

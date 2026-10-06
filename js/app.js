@@ -1,15 +1,18 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v3";
+  const STORAGE_KEY = "cfb-sim-2026-v4";
+  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3"];
   let DATA = null;
   let state = {
     teamId: null,
+    seasonYear: 2026,
     currentWeek: 1,
     results: {},
     seasonSeed: Date.now() % 1e9,
     phase: "regular", // regular | conf-champ | cfp-first | bowls | cfp-quarters | cfp-semis | cfp-championship | complete
     postseason: null, // built package + generated games
+    history: [], // archived seasons { year, teamId, teamName, record, confRecord, finalRank, bowlResult, note }
   };
 
   const rosterCache = {}; // teamId -> roster json
@@ -30,13 +33,30 @@
 
   function load() {
     try {
-      // Clear legacy saves so schema changes don't corrupt
-      localStorage.removeItem("cfb-sim-2026-v1");
-      localStorage.removeItem("cfb-sim-2026-v2");
-      const raw = localStorage.getItem(STORAGE_KEY);
+      let raw = localStorage.getItem(STORAGE_KEY);
+      let migrated = false;
+      if (!raw) {
+        // Prefer newest legacy (v3) if present
+        for (let i = LEGACY_KEYS.length - 1; i >= 0; i--) {
+          const legacy = localStorage.getItem(LEGACY_KEYS[i]);
+          if (legacy) {
+            raw = legacy;
+            migrated = true;
+            break;
+          }
+        }
+      }
+      LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") state = Object.assign(state, parsed);
+      if (parsed && typeof parsed === "object") {
+        state = Object.assign(state, parsed);
+        if (!Array.isArray(state.history)) state.history = [];
+        if (!state.seasonYear) state.seasonYear = 2026;
+        if (migrated) {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
+        }
+      }
     } catch (_) { /* ignore */ }
   }
 
@@ -224,11 +244,14 @@
     const t = team(state.teamId);
     if (!t) return;
     const rec = CFBSim.teamRecord(resultsList(), state.teamId);
+    const year = state.seasonYear || 2026;
+    const brandTitle = document.querySelector(".brand-title");
+    if (brandTitle) brandTitle.textContent = year + " Season Sim";
     $("#myTeamChip").innerHTML = `
       <img src="${t.logo}" alt="" width="52" height="52" onerror="this.style.visibility='hidden'" />
       <div>
         <h2>${escapeHtml(t.name)}</h2>
-        <div class="sub">${escapeHtml(t.conference)} · OVR ${t.overall}${t.apRank ? " · seeded AP #" + t.apRank : ""}</div>
+        <div class="sub">${year} · ${escapeHtml(t.conference)} · OVR ${t.overall}${t.apRank ? " · seeded AP #" + t.apRank : ""}</div>
       </div>`;
 
     const btn = $("#btnSimWeek");
@@ -251,9 +274,9 @@
         btnChunk.hidden = true;
       }
     } else if (state.phase === "complete") {
-      $("#weekLabel").textContent = "Season complete";
-      btn.disabled = true;
-      btn.textContent = "Season complete";
+      $("#weekLabel").textContent = (state.seasonYear || 2026) + " season complete";
+      btn.disabled = false;
+      btn.textContent = "Start next season";
       btnChunk.hidden = true;
     } else {
       $("#weekLabel").textContent = phaseLabel();
@@ -271,6 +294,7 @@
     renderDepth();
     renderPostseason();
     renderRecap();
+    renderHistory();
   }
 
   function shortPhase(p) {
@@ -582,6 +606,18 @@
       </table>`;
   }
 
+  function fmtRate(n, digits) {
+    if (n == null || !Number.isFinite(n)) return "—";
+    return n.toFixed(digits == null ? 1 : digits);
+  }
+
+  function medalCell(rank) {
+    if (rank === 1) return '<span class="medal medal-gold" title="1st">1</span>';
+    if (rank === 2) return '<span class="medal medal-silver" title="2nd">2</span>';
+    if (rank === 3) return '<span class="medal medal-bronze" title="3rd">3</span>';
+    return `<span class="rank-num">${rank}</span>`;
+  }
+
   function renderSeasonStats() {
     const el = $("#seasonStats");
     if (!el) return;
@@ -590,58 +626,95 @@
       el.innerHTML = '<div class="box-empty">Sim games to accumulate season stats for your roster.</div>';
       return;
     }
-    // Aggregate across all results (leaders use real names when rosters were loaded)
     const agg = CFBSim.accumulateSeasonStats(list, null);
     const mine = agg.teamLeaders(state.teamId);
     const t = team(state.teamId);
+    const q = agg.qualifiers || {};
+    const qNote = q.passing
+      ? `FBS boards ranked by YPG · min ${q.passing.minGames} games (pass ≥${q.passing.minAttPerGame * q.passing.minGames} att · rush ≥${q.rushing.minAttPerGame * q.rushing.minGames} att · rec ≥${q.receiving.minRecPerGame * q.receiving.minGames} rec).`
+      : "FBS boards ranked by yards per game with min-game qualifiers.";
 
-    function passTable(rows, limit) {
+    function teamAbbrev(tid) {
+      const tm = team(tid);
+      return tm ? escapeHtml(tm.abbreviation || "") : "";
+    }
+
+    function passTable(rows, limit, ranked) {
       const slice = rows.slice(0, limit);
-      if (!slice.length) return '<p class="muted small">No passing stats yet.</p>';
+      if (!slice.length) return '<p class="muted small">No qualified passing stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>Player</th><th>C/A</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
-        <tbody>${slice.map((p) => {
-          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
-          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.comp}/${p.att}</td><td>${p.yds}</td><td>${p.td}</td><td>${p.int}</td></tr>`;
+        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>C/A</th><th>INT</th></tr></thead>
+        <tbody>${slice.map((p, i) => {
+          const rank = i + 1;
+          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
+          return `<tr>
+            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
+            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td>${p.gp || 0}</td>
+            <td class="stat-lead">${fmtRate(p.ypg)}</td>
+            <td>${p.yds}</td>
+            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td>${p.comp}/${p.att}</td>
+            <td>${p.int}</td>
+          </tr>`;
         }).join("")}</tbody></table>`;
     }
-    function rushTable(rows, limit) {
+    function rushTable(rows, limit, ranked) {
       const slice = rows.slice(0, limit);
-      if (!slice.length) return '<p class="muted small">No rushing stats yet.</p>';
+      if (!slice.length) return '<p class="muted small">No qualified rushing stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>Player</th><th>Att</th><th>Yds</th><th>TD</th></tr></thead>
-        <tbody>${slice.map((p) => {
-          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
-          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.att}</td><td>${p.yds}</td><td>${p.td}</td></tr>`;
+        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>Att</th></tr></thead>
+        <tbody>${slice.map((p, i) => {
+          const rank = i + 1;
+          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
+          return `<tr>
+            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
+            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td>${p.gp || 0}</td>
+            <td class="stat-lead">${fmtRate(p.ypg)}</td>
+            <td>${p.yds}</td>
+            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td>${p.att}</td>
+          </tr>`;
         }).join("")}</tbody></table>`;
     }
-    function recTable(rows, limit) {
+    function recTable(rows, limit, ranked) {
       const slice = rows.slice(0, limit);
-      if (!slice.length) return '<p class="muted small">No receiving stats yet.</p>';
+      if (!slice.length) return '<p class="muted small">No qualified receiving stats yet.</p>';
       return `<table class="rank-table stats-table">
-        <thead><tr><th>Player</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>
-        <tbody>${slice.map((p) => {
-          const teamCell = p.teamId ? `<span class="muted small"> · ${escapeHtml((team(p.teamId)||{}).abbreviation || "")}</span>` : "";
-          return `<tr><td>${escapeHtml(p.name)}${teamCell}</td><td>${p.rec}</td><td>${p.yds}</td><td>${p.td}</td></tr>`;
+        <thead><tr><th>#</th><th>Player</th><th>G</th><th>YPG</th><th>Yds</th><th>TD/G</th><th>Rec</th></tr></thead>
+        <tbody>${slice.map((p, i) => {
+          const rank = i + 1;
+          const teamCell = p.teamId ? `<span class="muted small"> · ${teamAbbrev(p.teamId)}</span>` : "";
+          return `<tr>
+            <td class="rank-col">${ranked ? medalCell(rank) : rank}</td>
+            <td>${escapeHtml(p.name)}${teamCell}</td>
+            <td>${p.gp || 0}</td>
+            <td class="stat-lead">${fmtRate(p.ypg)}</td>
+            <td>${p.yds}</td>
+            <td>${fmtRate(p.tdpg, 2)}</td>
+            <td>${p.rec}</td>
+          </tr>`;
         }).join("")}</tbody></table>`;
     }
 
     el.innerHTML = `
       <div class="stats-section">
         <h3>${escapeHtml(t.shortName || t.name)} leaders</h3>
+        <p class="muted small stats-note">Sorted by yards/game · totals shown alongside.</p>
         <div class="stats-grid">
-          <div class="stat-block"><h3>Passing</h3>${passTable(mine.passing, 5)}</div>
-          <div class="stat-block"><h3>Rushing</h3>${rushTable(mine.rushing, 6)}</div>
-          <div class="stat-block"><h3>Receiving</h3>${recTable(mine.receiving, 6)}</div>
+          <div class="stat-block"><h3>Passing</h3>${passTable(mine.passing, 5, true)}</div>
+          <div class="stat-block"><h3>Rushing</h3>${rushTable(mine.rushing, 6, true)}</div>
+          <div class="stat-block"><h3>Receiving</h3>${recTable(mine.receiving, 6, true)}</div>
         </div>
       </div>
       <div class="stats-section">
         <h3>FBS leaders</h3>
-        <p class="muted small" style="padding:0 4px 8px">Top yards among games with roster attributions (all FBS sides when rosters loaded).</p>
+        <p class="muted small stats-note">${escapeHtml(qNote)}</p>
         <div class="stats-grid">
-          <div class="stat-block"><h3>Passing</h3>${passTable(agg.leaders.passing, 10)}</div>
-          <div class="stat-block"><h3>Rushing</h3>${rushTable(agg.leaders.rushing, 10)}</div>
-          <div class="stat-block"><h3>Receiving</h3>${recTable(agg.leaders.receiving, 10)}</div>
+          <div class="stat-block"><h3>Passing YPG</h3>${passTable(agg.leaders.passing, 10, true)}</div>
+          <div class="stat-block"><h3>Rushing YPG</h3>${rushTable(agg.leaders.rushing, 10, true)}</div>
+          <div class="stat-block"><h3>Receiving YPG</h3>${recTable(agg.leaders.receiving, 10, true)}</div>
         </div>
       </div>`;
   }
@@ -768,28 +841,13 @@
   }
 
   /* ---------- Recap ---------- */
-  function renderRecap() {
-    const wrap = $("#recapCard");
-    const panel = $("#panel-recap");
-    if (state.phase !== "complete") {
-      wrap.hidden = true;
-      wrap.innerHTML = "";
-      if (panel) panel.innerHTML = '<div class="box-empty">Complete the postseason to see your end-of-season recap.</div>';
-      return;
-    }
-    const ranked = CFBSim.computeTop25(
-      DATA.fbsTeamIds,
-      DATA.teams,
-      resultsList(),
-      DATA.schedules,
-      maxWeek() + 1
-    );
-    const recap = CFBSim.seasonRecap(state.teamId, DATA.teams, resultsList(), ranked, state.postseason);
-    const t = team(state.teamId);
+  function buildRecapHtml(recap, t, opts) {
     const rankTxt = recap.finalRank ? ` · Final #${recap.finalRank}` : "";
-    const html = `
+    const year = (opts && opts.year) || state.seasonYear || 2026;
+    const actions = (opts && opts.actions) ? opts.actions : "";
+    return `
       <div class="recap-card">
-        <div class="eyebrow">End of season</div>
+        <div class="eyebrow">${year} · End of season</div>
         <div class="recap-title">
           <img src="${t.logo}" alt="" width="48" height="48" onerror="this.style.visibility='hidden'" />
           <div>
@@ -799,10 +857,162 @@
         </div>
         <p class="recap-bowl">${escapeHtml(recap.bowlResult)}</p>
         ${recap.summary ? `<p class="recap-summary muted">${escapeHtml(recap.summary)}</p>` : ""}
+        ${actions}
       </div>`;
+  }
+
+  function currentSeasonRecap() {
+    const ranked = CFBSim.computeTop25(
+      DATA.fbsTeamIds,
+      DATA.teams,
+      resultsList(),
+      DATA.schedules,
+      maxWeek() + 1
+    );
+    return CFBSim.seasonRecap(state.teamId, DATA.teams, resultsList(), ranked, state.postseason);
+  }
+
+  function renderRecap() {
+    const wrap = $("#recapCard");
+    const panel = $("#panel-recap");
+    if (state.phase !== "complete") {
+      wrap.hidden = true;
+      wrap.innerHTML = "";
+      if (panel) panel.innerHTML = '<div class="box-empty">Complete the postseason to see your end-of-season recap.</div>';
+      return;
+    }
+    const recap = currentSeasonRecap();
+    const t = team(state.teamId);
+    const actions = `<div class="recap-actions">
+        <button type="button" class="btn btn-primary" id="btnStartNextSeason">Start next season</button>
+        <span class="muted small">Same roster &amp; ratings · history is saved</span>
+      </div>`;
+    const html = buildRecapHtml(recap, t, { actions });
     wrap.hidden = false;
     wrap.innerHTML = html;
     if (panel) panel.innerHTML = html;
+    // Wire both possible buttons (card + panel)
+    $$("#btnStartNextSeason").forEach((btn) => {
+      btn.addEventListener("click", () => startNextSeason());
+    });
+  }
+
+  /* ---------- History ---------- */
+  function renderHistory() {
+    const el = $("#historyPanel");
+    if (!el) return;
+    const rows = Array.isArray(state.history) ? state.history.slice() : [];
+    // Show in-progress? Only completed archives. Optionally preview current if complete.
+    if (state.phase === "complete" && state.teamId) {
+      // Preview current season as a soft row if not yet archived
+      // (archived only when starting next season)
+    }
+    if (!rows.length && state.phase !== "complete") {
+      el.innerHTML = '<div class="box-empty">Finish a season, then use <strong>Start next season</strong> to archive it here. Same rosters carry forward.</div>';
+      return;
+    }
+
+    let preview = "";
+    if (state.phase === "complete" && state.teamId) {
+      const recap = currentSeasonRecap();
+      const t = team(state.teamId);
+      preview = `
+        <div class="history-current">
+          <div class="eyebrow">Current season (not archived yet)</div>
+          <div class="history-row current">
+            <div class="hy">${state.seasonYear || 2026}</div>
+            <div class="ht">
+              <img src="${t.logo}" alt="" width="22" height="22" onerror="this.style.visibility='hidden'" />
+              ${escapeHtml(recap.name)}
+            </div>
+            <div class="hr">${recap.record.w}–${recap.record.l}</div>
+            <div class="hc">${recap.confRecord.w}–${recap.confRecord.l}</div>
+            <div class="hk">${recap.finalRank ? "#" + recap.finalRank : "—"}</div>
+            <div class="hb">${escapeHtml(recap.bowlResult)}</div>
+          </div>
+          <div class="recap-actions" style="margin-top:10px">
+            <button type="button" class="btn btn-primary" id="btnStartNextSeasonHistory">Start next season</button>
+          </div>
+        </div>`;
+    }
+
+    const archived = rows.length
+      ? `<div class="history-list">
+          <div class="history-row head">
+            <div class="hy">Year</div>
+            <div class="ht">Team</div>
+            <div class="hr">Record</div>
+            <div class="hc">Conf</div>
+            <div class="hk">Rank</div>
+            <div class="hb">Bowl / CFP</div>
+          </div>
+          ${rows.slice().reverse().map((h) => {
+            const tm = team(h.teamId);
+            const logo = tm && tm.logo ? tm.logo : "";
+            const note = h.note ? `<div class="history-note muted small">${escapeHtml(h.note)}</div>` : "";
+            return `<div class="history-row">
+              <div class="hy">${h.year}</div>
+              <div class="ht">
+                ${logo ? `<img src="${logo}" alt="" width="22" height="22" onerror="this.style.visibility='hidden'" />` : ""}
+                <div>
+                  <div>${escapeHtml(h.teamName || (tm && (tm.shortName || tm.name)) || "Team")}</div>
+                  ${note}
+                </div>
+              </div>
+              <div class="hr">${escapeHtml(h.record || "—")}</div>
+              <div class="hc">${escapeHtml(h.confRecord || "—")}</div>
+              <div class="hk">${h.finalRank ? "#" + h.finalRank : "—"}</div>
+              <div class="hb">${escapeHtml(h.bowlResult || "—")}</div>
+            </div>`;
+          }).join("")}
+        </div>`
+      : '<p class="muted small" style="padding:8px 12px">No archived seasons yet — start the next season from Recap to save this one.</p>';
+
+    el.innerHTML = preview + archived;
+    const btn = $("#btnStartNextSeasonHistory");
+    if (btn) btn.addEventListener("click", () => startNextSeason());
+  }
+
+  function archiveCurrentSeason() {
+    if (state.phase !== "complete" || !state.teamId) return null;
+    const recap = currentSeasonRecap();
+    const entry = {
+      year: state.seasonYear || 2026,
+      teamId: state.teamId,
+      teamName: recap.name,
+      record: recap.record.w + "–" + recap.record.l,
+      confRecord: recap.confRecord.w + "–" + recap.confRecord.l,
+      conference: recap.conference,
+      finalRank: recap.finalRank,
+      bowlResult: recap.bowlResult,
+      note: recap.summary,
+    };
+    if (!Array.isArray(state.history)) state.history = [];
+    state.history.push(entry);
+    return entry;
+  }
+
+  function startNextSeason() {
+    if (state.phase !== "complete" || !state.teamId) return;
+    const archived = archiveCurrentSeason();
+    const nextYear = (state.seasonYear || 2026) + 1;
+    const id = state.teamId;
+    state.seasonYear = nextYear;
+    state.currentWeek = 1;
+    state.results = {};
+    state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + nextYear);
+    state.phase = "regular";
+    state.postseason = null;
+    const sel = $("#depthTeamSelect");
+    if (sel) sel.innerHTML = "";
+    save();
+    renderSeason();
+    switchTab("schedule");
+    toast(
+      archived
+        ? `${archived.year} archived · ${nextYear} season started`
+        : `${nextYear} season started`
+    );
   }
 
   /* ---------- Simulation ---------- */
@@ -836,7 +1046,10 @@
   }
 
   async function simNextWeek() {
-    if (state.phase === "complete") return;
+    if (state.phase === "complete") {
+      startNextSeason();
+      return;
+    }
 
     if (state.phase === "regular") {
       if (state.currentWeek > maxWeek()) {
@@ -1079,10 +1292,14 @@
   }
 
   function pickTeam(id) {
+    const keepHistory = Array.isArray(state.history) ? state.history : [];
+    const keepYear = state.seasonYear || 2026;
     state.teamId = id;
+    state.seasonYear = keepYear;
+    state.history = keepHistory;
     state.currentWeek = 1;
     state.results = {};
-    state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id);
+    state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + keepYear);
     state.phase = "regular";
     state.postseason = null;
     // reset depth select
@@ -1092,16 +1309,16 @@
     loadRoster(id); // warm cache
     showSeason();
     switchTab("schedule");
-    toast("Season started · " + team(id).shortName);
+    toast(keepYear + " season · " + team(id).shortName);
   }
 
   function resetSeason() {
     if (!state.teamId) return;
-    if (!confirm("Reset this season? All simmed results will be cleared.")) return;
+    if (!confirm("Reset this season? Simmed results clear; History stays.")) return;
     const id = state.teamId;
     state.currentWeek = 1;
     state.results = {};
-    state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|reset");
+    state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|reset|" + (state.seasonYear || 2026));
     state.phase = "regular";
     state.postseason = null;
     const sel = $("#depthTeamSelect");
@@ -1109,12 +1326,11 @@
     save();
     renderSeason();
     switchTab("schedule");
-    toast("Season reset");
+    toast("Season reset · history kept");
   }
 
   function switchTab(name) {
-    // Map 'recap' to showing recap panel via postseason tab area — we have a recap tab
-    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap"];
+    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history"];
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
     tabs.forEach((p) => {
       const el = $("#panel-" + p);
@@ -1124,6 +1340,7 @@
     if (name === "stats") renderSeasonStats();
     if (name === "postseason") renderPostseason();
     if (name === "recap") renderRecap();
+    if (name === "history") renderHistory();
   }
 
   /* ---------- Boot ---------- */
@@ -1155,7 +1372,7 @@
     });
     $("#btnReset").addEventListener("click", resetSeason);
     $("#btnChangeTeam").addEventListener("click", () => {
-      if (!confirm("Leave this season and pick a different team? Progress is kept in localStorage until you pick again (picking resets).")) return;
+      if (!confirm("Leave this season and pick a different team? History is kept; the in-progress season is discarded when you pick.")) return;
       state.teamId = null;
       state.currentWeek = 1;
       state.results = {};
