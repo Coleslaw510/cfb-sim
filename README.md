@@ -29,7 +29,7 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v7`). Older `v1`–`v6` save
 8. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
 9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
 10. End-of-season recap + **coin payouts** for season goals
-11. **All-Time Shop** from the team picker / pre-season (browse + starting-coin buys) and between seasons — real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
+11. **All-Time Shop** on the main season screen (browse anytime; buy in pre-season / between seasons) and team picker — real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
 12. **Start next season** (same ESPN base rosters + owned shop players, new generated schedule)
 13. **History** tab — archived years (record, conf, rank, bowl/CFP)
 14. Persist / reset (History, coins, and owned shop players preserved)
@@ -193,7 +193,7 @@ Rosters are **not** aged yet; class year is stored and displayed for future adva
 
 ## Coin economy & All-Time Shop
 
-Open the **All-Time Shop** from the **team picker** (**Browse All-Time Shop**) or in **pre-season** (after picking a team, before you sim a game), and again **between seasons** (after the recap, before **Start next season**). Between-season flow is unchanged.
+Open the **All-Time Shop** from the **main season screen** (**Browse All-Time Shop** / topbar **All-Time Shop**), the **team picker**, or **between seasons** (after the recap, before **Start next season**). Mid-season opens are browse-only; purchases stay available in pre-season (starting coins) and between seasons. Between-season flow is unchanged.
 
 ### Coins
 - Starting balance: **100** coins on a new save (enough to browse and pick up cheaper catalog players before year one).

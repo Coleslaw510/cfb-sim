@@ -28,7 +28,7 @@
 
   let ALLTIME = null; // { players, teams, ... } catalog
   let shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
-  /** Where the shop was opened from: "recap" (between seasons) | "picker" | "season" (pre-season). */
+  /** Where the shop was opened from: "recap" (between seasons) | "picker" | "season" (main season screen). */
   let shopReturn = "recap";
 
   const rosterCache = {}; // teamId -> roster json
@@ -402,7 +402,8 @@
     const btnChunk = $("#btnSimPostseason");
     $("#recordLabel").textContent = rec.w + "–" + rec.l;
 
-    const btnPreShop = $("#btnPreseasonShop");
+    const btnSeasonShop = $("#btnSeasonShop");
+    const btnTopShop = $("#btnTopShop");
     if (state.phase === "regular") {
       const next = state.currentWeek;
       const done = next > maxWeek();
@@ -412,27 +413,35 @@
         btn.disabled = false;
         btn.textContent = "Start postseason";
         btnChunk.hidden = true;
-        if (btnPreShop) btnPreShop.hidden = true;
       } else {
         $("#weekLabel").textContent = "Ready for Week " + next;
         btn.disabled = false;
         btn.textContent = "Sim Week " + next;
         btnChunk.hidden = true;
-        if (btnPreShop) btnPreShop.hidden = !isPreseasonShopWindow();
       }
     } else if (state.phase === "complete") {
       $("#weekLabel").textContent = (state.seasonYear || 2026) + " season complete";
       btn.disabled = false;
       btn.textContent = "All-Time Shop";
       btnChunk.hidden = true;
-      if (btnPreShop) btnPreShop.hidden = true;
     } else {
       $("#weekLabel").textContent = phaseLabel();
       btn.disabled = false;
       btn.textContent = "Sim " + shortPhase(state.phase);
       btnChunk.hidden = false;
       btnChunk.textContent = "Sim rest of postseason";
-      if (btnPreShop) btnPreShop.hidden = true;
+    }
+    // Always keep shop on the main season screen (not only via Change Team → picker).
+    const shopLabel = state.phase === "complete" || isPreseasonShopWindow()
+      ? "All-Time Shop"
+      : "Browse All-Time Shop";
+    if (btnSeasonShop) {
+      btnSeasonShop.hidden = false;
+      btnSeasonShop.textContent = shopLabel;
+    }
+    if (btnTopShop) {
+      btnTopShop.hidden = false;
+      btnTopShop.textContent = shopLabel;
     }
 
     renderSchedule();
@@ -1185,13 +1194,20 @@
     const back = $("#btnShopBack");
     const go = $("#btnShopStartSeason");
     const between = shopReturn === "recap";
+    const canBuy = canPurchaseInShop();
     if (eyebrow) {
-      eyebrow.textContent = between ? "Between seasons" : "Pre-season";
+      eyebrow.textContent = between
+        ? "Between seasons"
+        : (canBuy ? "Pre-season" : "Browse only");
     }
     if (blurb) {
-      blurb.textContent = between
-        ? "Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else."
-        : "Browse the catalog before you sim. Starting coins can buy players now — they join your depth chart when you pick a team (or right away if you already have). Between-season shop stays available after each year.";
+      if (between) {
+        blurb.textContent = "Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else.";
+      } else if (canBuy) {
+        blurb.textContent = "Browse the catalog before you sim. Starting coins can buy players now — they join your depth chart when you pick a team (or right away if you already have). Between-season shop stays available after each year.";
+      } else {
+        blurb.textContent = "Browsing the catalog mid-season. Purchases unlock again between seasons (or reset to pre-season). Owned players already on your depth chart stay active.";
+      }
     }
     if (back) {
       back.textContent = between ? "Back to recap" : (shopReturn === "picker" ? "Back to team pick" : "Back to season");
@@ -1225,33 +1241,51 @@
 
   /** From team picker — browse (and optionally buy with starting coins) before picking. */
   function openShopFromPicker() {
-    shopReturn = "picker";
-    // Prefer showing Iowa for Cole when opening fresh from picker.
-    if (ALLTIME && ALLTIME.teams && ALLTIME.teams["2294"] && !shopFilter.teamId) {
-      shopFilter.teamId = "2294";
+    if (!$("#view-shop")) {
+      toast("Shop view missing — reload the page");
+      return;
     }
+    shopReturn = "picker";
+    preferIowaShopFilter();
     refreshShopPanels();
+    applyShopTeamFilterSelect();
+  }
+
+  /** Prefer Iowa filter when the user's school is Iowa (catalog school id 2294). */
+  function preferIowaShopFilter() {
+    if (!ALLTIME || shopFilter.teamId) return;
+    if (ALLTIME.teams && ALLTIME.teams["2294"] && !state.teamId) {
+      shopFilter.teamId = "2294";
+      return;
+    }
+    if (!state.teamId) return;
+    const t = team(state.teamId);
+    if (t && /iowa/i.test(t.name) && !/state/i.test(t.name)) shopFilter.teamId = "2294";
+  }
+
+  function applyShopTeamFilterSelect() {
     const teamF = $("#shopTeamFilter");
     if (teamF && shopFilter.teamId) teamF.value = shopFilter.teamId;
     renderShopGrid();
   }
 
-  /** After a team is picked but before any games are simmed. */
-  function openShopFromPreseason() {
-    if (!isPreseasonShopWindow()) {
-      toast("Pre-season shop is available before you sim a game");
+  /**
+   * From the main season screen (or topbar). Always opens the shop.
+   * Purchases remain gated by canPurchaseInShop(); mid-season is browse-only.
+   */
+  function openShopFromSeason() {
+    if (state.phase === "complete" && state.teamId) {
+      openShop();
+      return;
+    }
+    if (!$("#view-shop")) {
+      toast("Shop view missing — reload the page");
       return;
     }
     shopReturn = "season";
-    if (state.teamId && ALLTIME && !shopFilter.teamId) {
-      // Prefer filtering to the user's school when known in DATA mapping — Iowa id is 2294
-      const t = team(state.teamId);
-      if (t && /iowa/i.test(t.name) && !/state/i.test(t.name)) shopFilter.teamId = "2294";
-    }
+    preferIowaShopFilter();
     refreshShopPanels();
-    const teamF = $("#shopTeamFilter");
-    if (teamF && shopFilter.teamId) teamF.value = shopFilter.teamId;
-    renderShopGrid();
+    applyShopTeamFilterSelect();
   }
 
   function closeShop() {
@@ -1372,13 +1406,19 @@
       el.innerHTML = '<div class="box-empty">No players match these filters.</div>';
       return;
     }
+    const purchaseOk = canPurchaseInShop();
     el.innerHTML = slice.map((p) => {
       const isOwned = owned.has(p.id);
-      const canBuy = !isOwned && state.coins >= p.cost;
+      const canBuy = purchaseOk && !isOwned && state.coins >= p.cost;
       const ovrClass = p.ovr >= 95 ? "elite" : p.ovr >= 88 ? "great" : "";
-      const btn = isOwned
-        ? `<button type="button" class="btn btn-ghost btn-buy" disabled>Owned</button>`
-        : `<button type="button" class="btn btn-primary btn-buy" data-buy="${p.id}" ${canBuy ? "" : "disabled"}>${canBuy ? "Buy" : "Need coins"}</button>`;
+      let btn;
+      if (isOwned) {
+        btn = `<button type="button" class="btn btn-ghost btn-buy" disabled>Owned</button>`;
+      } else if (!purchaseOk) {
+        btn = `<button type="button" class="btn btn-ghost btn-buy" disabled title="Purchases unlock pre-season or between seasons">Browse only</button>`;
+      } else {
+        btn = `<button type="button" class="btn btn-primary btn-buy" data-buy="${p.id}" ${canBuy ? "" : "disabled"}>${canBuy ? "Buy" : "Need coins"}</button>`;
+      }
       return `<div class="shop-card-player ${isOwned ? "owned" : ""}">
         <div class="sp-top">
           <div>
@@ -1903,8 +1943,10 @@
     bindShop();
     const browse = $("#btnBrowseShop");
     if (browse) browse.addEventListener("click", () => openShopFromPicker());
-    const preShop = $("#btnPreseasonShop");
-    if (preShop) preShop.addEventListener("click", () => openShopFromPreseason());
+    const seasonShop = $("#btnSeasonShop");
+    if (seasonShop) seasonShop.addEventListener("click", () => openShopFromSeason());
+    const topShop = $("#btnTopShop");
+    if (topShop) topShop.addEventListener("click", () => openShopFromSeason());
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {
