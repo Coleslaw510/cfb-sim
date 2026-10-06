@@ -1,9 +1,13 @@
-/* CFB 2026 simulation engine — drive-based probabilistic model */
+/* CFB 2026 simulation engine — drive-based + postseason selection */
 (function (global) {
   "use strict";
 
   const FIRST_NAMES = ["Jaylen","Marcus","Tyler","Cam","Jordan","Malik","Noah","Isaiah","Cole","Dylan","Brayden","Jalen","Xavier","Aiden","Carson","Miles","Kaiden","Bryce","Devin","Riley","Owen","Eli","Caleb","Nate","Chris","Jake","Hunter","Logan","Quinn","Austin"];
   const LAST_NAMES = ["Williams","Johnson","Brown","Davis","Miller","Wilson","Moore","Taylor","Anderson","Thomas","Jackson","White","Harris","Martin","Thompson","Garcia","Martinez","Robinson","Clark","Lewis","Lee","Walker","Hall","Allen","Young","King","Wright","Scott","Green","Baker","Adams","Nelson","Carter","Mitchell","Perez","Roberts","Turner","Phillips","Campbell","Parker"];
+
+  const POWER4 = new Set(["1", "4", "5", "8"]); // ACC, Big 12, Big Ten, SEC
+  const G6 = new Set(["151", "12", "15", "17", "9", "37"]); // American, CUSA, MAC, MW, Pac-12, Sun Belt
+  const INDEPENDENT = "18";
 
   function mulberry32(a) {
     return function () {
@@ -33,9 +37,22 @@
     return f + " " + l;
   }
 
-  /** Expected points from rating differential */
+  /** Resolve a depth-chart player name; fall back to generic. */
+  function depthName(roster, pos, slot, rng) {
+    if (roster && roster.depth && roster.players) {
+      const idxs = roster.depth[pos] || [];
+      if (idxs[slot] != null && roster.players[idxs[slot]]) {
+        return roster.players[idxs[slot]].n;
+      }
+      // try next slots if preferred missing
+      for (let i = 0; i < idxs.length; i++) {
+        if (roster.players[idxs[i]]) return roster.players[idxs[i]].n;
+      }
+    }
+    return pickName(rng);
+  }
+
   function expectedPoints(off, def, homeBoost) {
-    // League average ~27; each rating point ~0.55 pts of expected scoring
     const base = 12 + (off - 50) * 0.55 - (def - 50) * 0.45 + homeBoost;
     return clamp(base, 7, 52);
   }
@@ -50,12 +67,10 @@
     const homeExp = expectedPoints(homeTeam.offense, awayTeam.defense, homeBoost);
     const awayExp = expectedPoints(awayTeam.offense, homeTeam.defense, 0);
 
-    // Drive count ~10–13 each
     const homeDrives = 10 + Math.floor(rng() * 4);
     const awayDrives = 10 + Math.floor(rng() * 4);
 
     function scoreFromDrives(expPts, drives) {
-      // Convert expected points into TD/FG mix with noise
       let pts = 0;
       let td = 0;
       let fg = 0;
@@ -73,7 +88,6 @@
           to += 1;
         }
       }
-      // Occasional safety / 2pt noise omitted for simplicity; add small variance
       if (rng() < 0.04) pts += 2;
       return { pts, td, fg, to };
     }
@@ -81,13 +95,11 @@
     let homeS = scoreFromDrives(homeExp, homeDrives);
     let awayS = scoreFromDrives(awayExp, awayDrives);
 
-    // Avoid too many 0–0 / very low; bump if both tiny
     if (homeS.pts + awayS.pts < 17) {
       if (rng() < 0.5) homeS.pts += 7;
       else awayS.pts += 7;
     }
 
-    // OT if tied
     let ot = false;
     while (homeS.pts === awayS.pts) {
       ot = true;
@@ -95,7 +107,6 @@
       else awayS.pts += 3;
       if (rng() < 0.55) awayS.pts += 7;
       else homeS.pts += 3;
-      // ensure not still tied after both scored same
       if (homeS.pts === awayS.pts) {
         if (rng() < 0.5) homeS.pts += 3;
         else awayS.pts += 3;
@@ -129,7 +140,7 @@
         turnovers,
         thirdDownConv: clamp(Math.round(4 + rng() * 8), 2, 12),
         thirdDownAtt: clamp(Math.round(11 + rng() * 5), 10, 18),
-        timeOfPoss: null, // filled below
+        timeOfPoss: null,
         isHome,
       };
     }
@@ -137,7 +148,6 @@
     const homeY = yardsBundle(homeS.pts, homeTeam.offense, awayTeam.defense, true);
     const awayY = yardsBundle(awayS.pts, awayTeam.offense, homeTeam.defense, false);
 
-    // Align turnovers somewhat with drive TOs
     homeY.turnovers = Math.max(homeY.turnovers, homeS.to > 0 ? homeS.to : homeY.turnovers);
     awayY.turnovers = Math.max(awayY.turnovers, awayS.to > 0 ? awayS.to : awayY.turnovers);
 
@@ -145,32 +155,43 @@
     homeY.timeOfPoss = formatTOP(homePossMin);
     awayY.timeOfPoss = formatTOP(60 - homePossMin);
 
-    function leadersFor(team, yds, pts) {
-      const qb = pickName(rng);
-      const rb1 = pickName(rng);
-      const rb2 = pickName(rng);
-      const wr1 = pickName(rng);
+    function leadersFor(roster, yds, pts) {
+      const qb = depthName(roster, "QB", 0, rng);
+      const rb1 = depthName(roster, "RB", 0, rng);
+      const rb2 = depthName(roster, "RB", 1, rng);
+      const wr1 = depthName(roster, "WR", 0, rng);
+      const wr2 = depthName(roster, "WR", 1, rng);
+      const te1 = depthName(roster, "TE", 0, rng);
       const passTds = clamp(Math.round(pts / 10 + (rng() - 0.4)), 0, 5);
       const rushTds = Math.max(0, Math.round(pts / 14) - Math.floor(passTds * 0.4));
       const rush1 = Math.round(yds.rushYds * (0.55 + rng() * 0.2));
       const rush2 = Math.max(8, yds.rushYds - rush1 - Math.round(rng() * 20));
       const recYds = Math.round(yds.passYds * (0.28 + rng() * 0.15));
+      const recYds2 = Math.round(yds.passYds * (0.18 + rng() * 0.1));
+      // Prefer WR; occasionally TE for receiving leader
+      const recName = rng() < 0.18 ? te1 : wr1;
       return {
         passing: { name: qb, comp: yds.completions, att: yds.passAtt, yds: yds.passYds, td: passTds, int: yds.interceptions },
         rushing: [
           { name: rb1, att: Math.round(yds.rushAtt * 0.55), yds: rush1, td: Math.min(rushTds, 2) },
           { name: rb2, att: Math.max(3, yds.rushAtt - Math.round(yds.rushAtt * 0.55) - 4), yds: Math.max(0, rush2), td: Math.max(0, rushTds - 2) },
         ],
-        receiving: [{ name: wr1, rec: clamp(Math.round(3 + rng() * 6), 2, 10), yds: recYds, td: Math.min(passTds, 2) }],
+        receiving: [
+          { name: recName, rec: clamp(Math.round(3 + rng() * 6), 2, 10), yds: recYds, td: Math.min(passTds, 2) },
+          { name: wr2, rec: clamp(Math.round(2 + rng() * 5), 1, 8), yds: recYds2, td: Math.max(0, Math.min(passTds - 1, 1)) },
+        ],
       };
     }
 
-    const homeLeaders = leadersFor(homeTeam, homeY, homeS.pts);
-    const awayLeaders = leadersFor(awayTeam, awayY, awayS.pts);
+    const homeLeaders = leadersFor(meta.homeRoster || null, homeY, homeS.pts);
+    const awayLeaders = leadersFor(meta.awayRoster || null, awayY, awayS.pts);
 
     return {
       eventId: meta.eventId,
       week: meta.week,
+      label: meta.label || null,
+      bowl: meta.bowl || null,
+      round: meta.round || null,
       neutralSite: !!meta.neutralSite,
       ot,
       homeId: homeTeam.id,
@@ -190,10 +211,13 @@
     return m + ":" + String(s).padStart(2, "0");
   }
 
-  function teamRecord(results, teamId) {
+  function teamRecord(results, teamId, opts) {
+    opts = opts || {};
     let w = 0, l = 0, pf = 0, pa = 0;
     for (const g of results) {
       if (g.homeId !== teamId && g.awayId !== teamId) continue;
+      if (opts.regularOnly && (g.round || g.bowl)) continue;
+      if (opts.postseasonOnly && !(g.round || g.bowl)) continue;
       const mine = g.homeId === teamId ? g.homeScore : g.awayScore;
       const theirs = g.homeId === teamId ? g.awayScore : g.homeScore;
       pf += mine;
@@ -209,6 +233,7 @@
     let w = 0, l = 0;
     for (const g of results) {
       if (g.homeId !== teamId && g.awayId !== teamId) continue;
+      if (g.round || g.bowl) continue; // conf record = regular season
       const oppId = g.homeId === teamId ? g.awayId : g.homeId;
       const opp = teams[oppId];
       if (!opp || opp.conferenceId !== conf || conf === "fcs") continue;
@@ -220,12 +245,6 @@
     return { w, l };
   }
 
-  /**
-   * Sim poll ranking score:
-   * winPct*40 + SOS*25 + avgMargin*15 + remainingOppStrength*10 + apSeed*10
-   * SOS = average opponent overall of games played
-   * apSeed = leftover from preseason AP (rank 1 => 1.0, unranked => 0.2)
-   */
   function computeTop25(fbsIds, teams, results, schedules, currentWeek) {
     const playedOppRatings = {};
     const remaining = {};
@@ -238,7 +257,6 @@
         const opp = teams[g.opponentId];
         const rating = opp ? opp.overall : 50;
         if (g.week < currentWeek) {
-          // only count if game was actually simmed (exists in results)
           const played = results.some((r) => r.eventId === g.eventId);
           if (played) playedOppRatings[id].push(rating);
         } else if (g.week >= currentWeek) {
@@ -248,7 +266,9 @@
     }
 
     const scored = fbsIds.map((id) => {
-      const rec = teamRecord(results, id);
+      // Regular-season ranking uses all results that aren't bowls (conf champs count)
+      const regularish = results.filter((g) => !g.bowl || g.round === "conf-champ");
+      const rec = teamRecord(regularish, id);
       const games = rec.w + rec.l;
       const winPct = games ? rec.w / games : 0;
       const sosArr = playedOppRatings[id];
@@ -258,7 +278,7 @@
       const remStr = rem.length ? rem.reduce((a, b) => a + b, 0) / rem.length / 100 : 0.55;
       const ap = teams[id].apRank;
       const apSeed = ap ? (26 - ap) / 25 : 0.2;
-      const marginScore = clamp((avgMargin + 20) / 40, 0, 1); // -20..+20 → 0..1
+      const marginScore = clamp((avgMargin + 20) / 40, 0, 1);
       const score =
         winPct * 40 +
         sos * 25 +
@@ -280,7 +300,316 @@
       if (b.rec.w !== a.rec.w) return b.rec.w - a.rec.w;
       return b.rec.margin - a.rec.margin;
     });
-    return scored.slice(0, 25).map((row, i) => ({ rank: i + 1, ...row }));
+    return scored.map((row, i) => ({ rank: i + 1, ...row }));
+  }
+
+  function conferenceStandings(confId, fbsIds, teams, results) {
+    return fbsIds
+      .map((id) => teams[id])
+      .filter((t) => t && t.conferenceId === confId)
+      .map((t) => {
+        const conf = conferenceRecord(results, t.id, teams);
+        const rec = teamRecord(results.filter((g) => !g.bowl), t.id);
+        return { team: t, conf, rec };
+      })
+      .sort((a, b) => {
+        const aw = a.conf.w + a.conf.l ? a.conf.w / (a.conf.w + a.conf.l) : 0;
+        const bw = b.conf.w + b.conf.l ? b.conf.w / (b.conf.w + b.conf.l) : 0;
+        if (bw !== aw) return bw - aw;
+        if (b.conf.w !== a.conf.w) return b.conf.w - a.conf.w;
+        if (b.rec.w !== a.rec.w) return b.rec.w - a.rec.w;
+        return b.rec.margin - a.rec.margin;
+      });
+  }
+
+  /**
+   * Build conference championship slate: #1 vs #2 by conference standings
+   * for every conference with ≥ 4 teams (skip Independents).
+   */
+  function buildConferenceChampionships(fbsIds, teams, results, conferences) {
+    const games = [];
+    for (const conf of conferences) {
+      if (conf.id === INDEPENDENT) continue;
+      const standings = conferenceStandings(conf.id, fbsIds, teams, results);
+      if (standings.length < 4) continue;
+      const a = standings[0].team;
+      const b = standings[1].team;
+      games.push({
+        eventId: "cc-" + conf.id,
+        round: "conf-champ",
+        label: conf.name + " Championship",
+        bowl: null,
+        homeId: a.id,
+        awayId: b.id,
+        neutralSite: true,
+        week: "CC",
+      });
+    }
+    return games;
+  }
+
+  /**
+   * 2026 CFP selection (simplified to match real format):
+   * Auto bids: ACC / Big Ten / Big 12 / SEC champions + highest-ranked G6 team
+   *            (G6 auto bid is best-ranked team from G6 conferences, champ or not).
+   * At-large: next highest-ranked teams to fill 12.
+   * Seeds 1–4 by ranking get first-round byes.
+   * First round: 5v12, 6v11, 7v10, 8v9 (higher seed home).
+   */
+  function selectCfpField(ranked, teams, conferenceChamps) {
+    const byId = {};
+    ranked.forEach((r) => { byId[r.id] = r; });
+
+    const field = [];
+    const used = new Set();
+
+    function add(id, autoBid, reason) {
+      if (!id || used.has(id)) return false;
+      used.add(id);
+      field.push({
+        teamId: id,
+        autoBid: !!autoBid,
+        reason: reason || (autoBid ? "auto" : "at-large"),
+        rank: byId[id] ? byId[id].rank : 99,
+      });
+      return true;
+    }
+
+    // Power 4 conference champions
+    for (const confId of ["1", "5", "4", "8"]) {
+      const champ = conferenceChamps[confId];
+      if (champ) add(champ, true, "P4 champion");
+    }
+
+    // Highest-ranked G6 team (any G6 school)
+    const g6Best = ranked.find((r) => G6.has(teams[r.id].conferenceId));
+    if (g6Best) add(g6Best.id, true, "G6 auto bid");
+
+    // At-large fill to 12 (includes Notre Dame / independents / remaining P4 / G6)
+    for (const r of ranked) {
+      if (field.length >= 12) break;
+      add(r.id, false, "at-large");
+    }
+
+    // Seed by ranking (committee proxy = sim poll)
+    field.sort((a, b) => a.rank - b.rank);
+    field.forEach((f, i) => { f.seed = i + 1; });
+    return field;
+  }
+
+  function winnerId(box) {
+    return box.homeScore > box.awayScore ? box.homeId : box.awayId;
+  }
+
+  /**
+   * Build full postseason package after regular season (+ optional conf champs already simmed).
+   * conferenceChamps: { confId: teamId }
+   * Returns { field, firstRound, bowls, quartersMeta, semisMeta, championshipMeta }
+   */
+  function buildPostseason(ranked, teams, conferenceChamps, postseasonMeta, results) {
+    const field = selectCfpField(ranked, teams, conferenceChamps);
+    const seedMap = {};
+    field.forEach((f) => { seedMap[f.seed] = f.teamId; });
+
+    const firstRound = [
+      { eventId: "cfp-r1-5-12", seedHome: 5, seedAway: 12 },
+      { eventId: "cfp-r1-6-11", seedHome: 6, seedAway: 11 },
+      { eventId: "cfp-r1-7-10", seedHome: 7, seedAway: 10 },
+      { eventId: "cfp-r1-8-9", seedHome: 8, seedAway: 9 },
+    ].map((g) => ({
+      eventId: g.eventId,
+      round: "cfp-first",
+      label: "CFP First Round",
+      bowl: null,
+      homeId: seedMap[g.seedHome],
+      awayId: seedMap[g.seedAway],
+      seedHome: g.seedHome,
+      seedAway: g.seedAway,
+      neutralSite: false,
+      week: "PS1",
+    }));
+
+    const cfpBowls = (postseasonMeta.cfpBowls || []).slice();
+    // Quarters: winners of first round vs seeds 1-4
+    // Bracket: 1 vs winner(8/9), 4 vs winner(5/12), 2 vs winner(7/10), 3 vs winner(6/11)
+    const quarterSlots = [
+      { eventId: "cfp-qf-1", byeSeed: 1, fromGame: "cfp-r1-8-9", bowl: cfpBowls[0] },
+      { eventId: "cfp-qf-2", byeSeed: 4, fromGame: "cfp-r1-5-12", bowl: cfpBowls[1] },
+      { eventId: "cfp-qf-3", byeSeed: 2, fromGame: "cfp-r1-7-10", bowl: cfpBowls[2] },
+      { eventId: "cfp-qf-4", byeSeed: 3, fromGame: "cfp-r1-6-11", bowl: cfpBowls[3] },
+    ];
+
+    const otherBowlDefs = postseasonMeta.otherBowls || [];
+    const cfpIds = new Set(field.map((f) => f.teamId));
+    // Bowl-eligible: FBS, ≥ 6 wins, not in CFP
+    const eligible = ranked
+      .filter((r) => {
+        if (cfpIds.has(r.id)) return false;
+        const rec = teamRecord(results.filter((g) => !g.bowl || g.round === "conf-champ"), r.id);
+        return rec.w >= 6;
+      })
+      .map((r) => r.id);
+
+    const bowls = [];
+    for (let i = 0; i + 1 < eligible.length && bowls.length < otherBowlDefs.length; i += 2) {
+      const def = otherBowlDefs[bowls.length];
+      bowls.push({
+        eventId: "bowl-" + def.id,
+        round: "bowl",
+        label: def.name,
+        bowl: def.name,
+        homeId: eligible[i],
+        awayId: eligible[i + 1],
+        neutralSite: true,
+        week: "BOWL",
+      });
+    }
+
+    return {
+      field,
+      firstRound,
+      quarterSlots,
+      bowls,
+      cfpBowlNames: cfpBowls.map((b) => b.name),
+      semiBowlNames: [cfpBowls[4] ? cfpBowls[4].name : "Rose Bowl", cfpBowls[5] ? cfpBowls[5].name : "Sugar Bowl"],
+      championshipName: (postseasonMeta.championship && postseasonMeta.championship.name) || "CFP National Championship",
+    };
+  }
+
+  function buildQuarterfinals(pkg, resultsById, seedMap) {
+    return pkg.quarterSlots.map((slot, idx) => {
+      const fr = resultsById[slot.fromGame];
+      const opp = fr ? winnerId(fr) : null;
+      const bye = seedMap[slot.byeSeed];
+      return {
+        eventId: slot.eventId,
+        round: "cfp-quarters",
+        label: slot.bowl ? slot.bowl.name : "CFP Quarterfinal",
+        bowl: slot.bowl ? slot.bowl.name : null,
+        homeId: bye,
+        awayId: opp,
+        neutralSite: true,
+        week: "PS2",
+        byeSeed: slot.byeSeed,
+      };
+    });
+  }
+
+  function buildSemifinals(qfResults, pkg) {
+    // Pair QF winners: qf-1 vs qf-2, qf-3 vs qf-4
+    const order = ["cfp-qf-1", "cfp-qf-2", "cfp-qf-3", "cfp-qf-4"];
+    const winners = order.map((id) => {
+      const box = qfResults[id];
+      return box ? winnerId(box) : null;
+    });
+    return [
+      {
+        eventId: "cfp-sf-1",
+        round: "cfp-semis",
+        label: pkg.semiBowlNames[0] || "CFP Semifinal",
+        bowl: pkg.semiBowlNames[0] || "Rose Bowl",
+        homeId: winners[0],
+        awayId: winners[1],
+        neutralSite: true,
+        week: "PS3",
+      },
+      {
+        eventId: "cfp-sf-2",
+        round: "cfp-semis",
+        label: pkg.semiBowlNames[1] || "CFP Semifinal",
+        bowl: pkg.semiBowlNames[1] || "Sugar Bowl",
+        homeId: winners[2],
+        awayId: winners[3],
+        neutralSite: true,
+        week: "PS3",
+      },
+    ];
+  }
+
+  function buildChampionship(sfResults, pkg) {
+    const w1 = sfResults["cfp-sf-1"] ? winnerId(sfResults["cfp-sf-1"]) : null;
+    const w2 = sfResults["cfp-sf-2"] ? winnerId(sfResults["cfp-sf-2"]) : null;
+    return {
+      eventId: "cfp-championship",
+      round: "cfp-championship",
+      label: pkg.championshipName,
+      bowl: pkg.championshipName,
+      homeId: w1,
+      awayId: w2,
+      neutralSite: true,
+      week: "PS4",
+    };
+  }
+
+  function seasonRecap(teamId, teams, results, ranked, postseason) {
+    const t = teams[teamId];
+    const allRec = teamRecord(results, teamId);
+    const conf = conferenceRecord(results, teamId, teams);
+    const pollRow = ranked.find((r) => r.id === teamId);
+    const finalRank = pollRow && pollRow.rank <= 25 ? pollRow.rank : null;
+
+    // Find postseason outcome
+    let bowlResult = "Did not bowl";
+    const myPost = results.filter(
+      (g) =>
+        (g.homeId === teamId || g.awayId === teamId) &&
+        (g.bowl || (g.round && g.round !== "conf-champ"))
+    );
+    const confChampGame = results.find(
+      (g) => g.round === "conf-champ" && (g.homeId === teamId || g.awayId === teamId)
+    );
+    let confChampNote = null;
+    if (confChampGame) {
+      const won = winnerId(confChampGame) === teamId;
+      confChampNote = won ? "Won conference championship" : "Lost conference championship";
+    }
+
+    if (myPost.length) {
+      const last = myPost[myPost.length - 1];
+      const won = winnerId(last) === teamId;
+      const name = last.bowl || last.label || "bowl";
+      if (last.round === "cfp-championship") {
+        bowlResult = won ? "Won CFP National Championship" : "Lost CFP National Championship";
+      } else if (last.round && String(last.round).startsWith("cfp")) {
+        bowlResult = won ? "Won " + name : "Lost " + name;
+        // If they won a round but didn't play further, still show last game
+      } else {
+        bowlResult = won ? "Won " + name : "Lost " + name;
+      }
+    }
+
+    // Best win: highest-ranked opponent defeated (by final poll)
+    let bestWin = null;
+    for (const g of results) {
+      if (g.homeId !== teamId && g.awayId !== teamId) continue;
+      if (winnerId(g) !== teamId) continue;
+      const oppId = g.homeId === teamId ? g.awayId : g.homeId;
+      const oppRank = ranked.find((r) => r.id === oppId);
+      if (!oppRank) continue;
+      if (!bestWin || oppRank.rank < bestWin.rank) {
+        bestWin = { rank: oppRank.rank, name: teams[oppId].shortName || teams[oppId].name, score: (g.homeId === teamId ? g.homeScore : g.awayScore) + "-" + (g.homeId === teamId ? g.awayScore : g.homeScore) };
+      }
+    }
+
+    const summaryParts = [];
+    if (bestWin && bestWin.rank <= 25) {
+      summaryParts.push("Best win: #" + bestWin.rank + " " + bestWin.name + " (" + bestWin.score + ")");
+    }
+    if (confChampNote) summaryParts.push(confChampNote);
+
+    return {
+      teamId,
+      name: t.shortName || t.name,
+      fullName: t.name,
+      record: allRec,
+      confRecord: conf,
+      conference: t.conference,
+      finalRank,
+      bowlResult,
+      confChampNote,
+      bestWin,
+      summary: summaryParts.join(" · ") || null,
+    };
   }
 
   global.CFBSim = {
@@ -289,5 +618,16 @@
     conferenceRecord,
     computeTop25,
     hashSeed,
+    conferenceStandings,
+    buildConferenceChampionships,
+    selectCfpField,
+    buildPostseason,
+    buildQuarterfinals,
+    buildSemifinals,
+    buildChampionship,
+    seasonRecap,
+    winnerId,
+    POWER4,
+    G6,
   };
 })(window);

@@ -15,7 +15,7 @@
       <span class="brand-mark">CFB</span>
       <div>
         <div class="brand-title">2026 Season Sim</div>
-        <div class="brand-sub">FBS · client-side MVP</div>
+        <div class="brand-sub">FBS · client-side</div>
       </div>
     </div>
     <div class="topbar-actions" id="topbarActions" hidden>
@@ -29,7 +29,7 @@
     <section id="view-picker" class="view">
       <div class="hero">
         <h1>Pick your school</h1>
-        <p>Choose an FBS team, load its real 2026 ESPN schedule, then sim the season week by week.</p>
+        <p>Choose an FBS team, load its real 2026 ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>
       </div>
       <div class="filters">
         <input type="search" id="teamSearch" placeholder="Search teams…" autocomplete="off" />
@@ -42,6 +42,8 @@
 
     <!-- SEASON DASHBOARD -->
     <section id="view-season" class="view" hidden>
+      <div id="recapCard" hidden></div>
+
       <div class="season-header">
         <div class="team-chip" id="myTeamChip"></div>
         <div class="week-controls">
@@ -51,14 +53,18 @@
             <span id="recordLabel" class="muted">0–0</span>
           </div>
           <button type="button" class="btn btn-primary" id="btnSimWeek">Sim next week</button>
+          <button type="button" class="btn btn-ghost" id="btnSimPostseason" hidden>Sim rest of postseason</button>
         </div>
       </div>
 
       <nav class="tabs" role="tablist">
         <button type="button" class="tab active" data-tab="schedule">Schedule</button>
         <button type="button" class="tab" data-tab="box">Box score</button>
+        <button type="button" class="tab" data-tab="depth">Depth chart</button>
         <button type="button" class="tab" data-tab="standings">Standings</button>
         <button type="button" class="tab" data-tab="top25">Top 25</button>
+        <button type="button" class="tab" data-tab="postseason">Postseason</button>
+        <button type="button" class="tab" data-tab="recap">Recap</button>
       </nav>
 
       <div id="panel-schedule" class="panel">
@@ -67,6 +73,14 @@
 
       <div id="panel-box" class="panel" hidden>
         <div id="boxScore" class="box-empty">Sim a week to see your box score.</div>
+      </div>
+
+      <div id="panel-depth" class="panel" hidden>
+        <div class="panel-head depth-controls">
+          <h2>Depth chart</h2>
+          <select id="depthTeamSelect" aria-label="Team for depth chart"></select>
+        </div>
+        <div id="depthChart" class="box-empty">Loading roster…</div>
       </div>
 
       <div id="panel-standings" class="panel" hidden>
@@ -84,11 +98,19 @@
         </div>
         <div id="top25Table"></div>
       </div>
+
+      <div id="panel-postseason" class="panel" hidden>
+        <div id="postseasonPanel" class="box-empty">Finish the regular season to unlock the postseason.</div>
+      </div>
+
+      <div id="panel-recap" class="panel" hidden>
+        <div class="box-empty">Complete the postseason to see your end-of-season recap.</div>
+      </div>
     </section>
   </main>
 
   <footer class="footer">
-    <span>Schedules &amp; logos via ESPN public APIs · ratings seeded from AP Top 25 · local only</span>
+    <span>Schedules, rosters &amp; logos via ESPN public APIs · ratings seeded from AP Top 25 · local only</span>
   </footer>
 
   <div id="toast" class="toast" hidden></div>

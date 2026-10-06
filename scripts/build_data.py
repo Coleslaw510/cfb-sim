@@ -1,11 +1,29 @@
 #!/usr/bin/env python3
-"""Fetch real 2026 FBS teams/schedules/AP seeds from ESPN into data/cfb-2026.json."""
+"""Fetch real 2026 FBS teams/schedules/AP seeds/rosters from ESPN."""
 import json, urllib.request, time, ssl, os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "cfb-2026.json")
+ROSTER_DIR = os.path.join(ROOT, "data", "rosters")
 ctx = ssl.create_default_context()
+
+# Map ESPN position abbreviations → depth-chart buckets
+POS_BUCKET = {
+    "QB": "QB",
+    "RB": "RB", "FB": "RB",
+    "WR": "WR",
+    "TE": "TE",
+    "OL": "OL", "OT": "OL", "OG": "OL", "C": "OL", "G": "OL", "T": "OL",
+    "DL": "DL", "DE": "DL", "DT": "DL", "NT": "DL",
+    "LB": "LB", "ILB": "LB", "OLB": "LB", "MLB": "LB",
+    "DB": "DB", "CB": "DB", "S": "DB", "FS": "DB", "SS": "DB", "SAF": "DB",
+    "PK": "K", "K": "K",
+    "P": "P",
+}
+DEPTH_ORDER = ["QB", "RB", "WR", "TE", "OL", "DL", "LB", "DB", "K", "P"]
+DEPTH_LIMITS = {"QB": 3, "RB": 4, "WR": 6, "TE": 3, "OL": 7, "DL": 6, "LB": 5, "DB": 6, "K": 2, "P": 2}
+
 
 def get(url, retries=3):
     url = url.replace("http://sports.core.api.espn.com", "https://sports.core.api.espn.com")
@@ -19,6 +37,52 @@ def get(url, retries=3):
             last = e
             time.sleep(0.5 * (attempt + 1))
     raise last
+
+
+def compact_roster(raw):
+    """Return compact players list + depth chart indices from ESPN roster payload."""
+    players = []
+    buckets = {k: [] for k in DEPTH_ORDER}
+    skip_groups = {"injuredReserveOrOut", "suspended", "practiceSquad"}
+    for grp in raw.get("athletes") or []:
+        gname = grp.get("position") or ""
+        if gname in skip_groups:
+            continue
+        for it in grp.get("items") or []:
+            pos = (it.get("position") or {}).get("abbreviation") or ""
+            bucket = POS_BUCKET.get(pos)
+            if not bucket:
+                continue
+            exp = it.get("experience") or {}
+            cls = exp.get("abbreviation") if isinstance(exp, dict) else None
+            jersey = it.get("jersey")
+            if jersey is None:
+                jersey = ""
+            else:
+                jersey = str(jersey)
+            name = it.get("displayName") or it.get("fullName") or "Unknown"
+            idx = len(players)
+            players.append({"n": name, "j": jersey, "p": pos, "c": cls or ""})
+            buckets[bucket].append(idx)
+
+    CLASS_RANK = {"SR": 0, "JR": 1, "SO": 2, "FR": 3, "": 4}
+    depth = {}
+    for bucket in DEPTH_ORDER:
+        lim = DEPTH_LIMITS.get(bucket, 5)
+        idxs = buckets[bucket]
+        idxs.sort(key=lambda i: (CLASS_RANK.get((players[i].get("c") or "").upper(), 4), players[i].get("n") or ""))
+        depth[bucket] = idxs[:lim]
+    return players, depth
+
+
+def fetch_roster(tid):
+    try:
+        raw = get(f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams/{tid}/roster")
+        players, depth = compact_roster(raw)
+        return tid, {"id": tid, "players": players, "depth": depth}, None
+    except Exception as e:
+        return tid, None, str(e)
+
 
 def main():
     conf_ids = ["151", "1", "4", "5", "12", "18", "15", "17", "9", "8", "37"]
@@ -149,11 +213,94 @@ def main():
                 "apRank": None, "isFbs": False,
             }
 
+    # --- Rosters ---
+    os.makedirs(ROSTER_DIR, exist_ok=True)
+    roster_ok, roster_missing = [], []
+    print("Fetching rosters…")
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(fetch_roster, tid): tid for tid in enriched}
+        for fut in as_completed(futs):
+            tid, payload, err = fut.result()
+            if payload and payload["players"]:
+                path = os.path.join(ROSTER_DIR, f"{tid}.json")
+                with open(path, "w") as f:
+                    json.dump(payload, f, separators=(",", ":"))
+                roster_ok.append(tid)
+            else:
+                roster_missing.append({"id": tid, "error": err or "empty"})
+                print(f"  missing roster {tid} ({enriched[tid]['name']}): {err}")
+
+    # Manifest for lazy-load checks
+    with open(os.path.join(ROOT, "data", "roster-manifest.json"), "w") as f:
+        json.dump({
+            "season": 2026,
+            "count": len(roster_ok),
+            "teams": sorted(roster_ok, key=lambda x: int(x) if x.isdigit() else x),
+            "missing": roster_missing,
+        }, f, separators=(",", ":"))
+
     weeks = [{"week": i, "label": f"Week {i}", "detail": d} for i, d in enumerate([
         "Aug 22–Sep 7", "Sep 8–13", "Sep 14–20", "Sep 21–27", "Sep 28–Oct 4",
         "Oct 5–11", "Oct 12–18", "Oct 19–25", "Oct 26–Nov 1", "Nov 2–8",
         "Nov 9–15", "Nov 16–22", "Nov 23–29", "Nov 30–Dec 6", "Dec 7–12",
     ], 1)]
+
+    # Postseason metadata (static bowl names / CFP structure)
+    postseasonMeta = {
+        "cfpFormat": "12-team",
+        "autoBidConferences": [
+            {"id": "1", "name": "Atlantic Coast Conference"},
+            {"id": "5", "name": "Big Ten Conference"},
+            {"id": "4", "name": "Big 12 Conference"},
+            {"id": "8", "name": "Southeastern Conference"},
+        ],
+        "g6Conferences": [
+            {"id": "151", "name": "American Conference"},
+            {"id": "12", "name": "Conference USA"},
+            {"id": "15", "name": "Mid-American Conference"},
+            {"id": "17", "name": "Mountain West Conference"},
+            {"id": "9", "name": "Pac-12 Conference"},
+            {"id": "37", "name": "Sun Belt Conference"},
+        ],
+        "cfpBowls": [
+            {"id": "cotton", "name": "Cotton Bowl"},
+            {"id": "fiesta", "name": "Fiesta Bowl"},
+            {"id": "orange", "name": "Orange Bowl"},
+            {"id": "peach", "name": "Peach Bowl"},
+            {"id": "rose", "name": "Rose Bowl"},
+            {"id": "sugar", "name": "Sugar Bowl"},
+        ],
+        "otherBowls": [
+            {"id": "citrus", "name": "Citrus Bowl"},
+            {"id": "reliaquest", "name": "ReliaQuest Bowl"},
+            {"id": "alamo", "name": "Alamo Bowl"},
+            {"id": "holiday", "name": "Holiday Bowl"},
+            {"id": "texas", "name": "Texas Bowl"},
+            {"id": "gator", "name": "Gator Bowl"},
+            {"id": "music-city", "name": "Music City Bowl"},
+            {"id": "las-vegas", "name": "Las Vegas Bowl"},
+            {"id": "sun", "name": "Sun Bowl"},
+            {"id": "liberty", "name": "Liberty Bowl"},
+            {"id": "duke-mayo", "name": "Duke's Mayo Bowl"},
+            {"id": "fenway", "name": "Fenway Bowl"},
+            {"id": "independence", "name": "Independence Bowl"},
+            {"id": "military", "name": "Military Bowl"},
+            {"id": "pinstripe", "name": "Pinstripe Bowl"},
+            {"id": "pop-tarts", "name": "Pop-Tarts Bowl"},
+            {"id": "armed-forces", "name": "Armed Forces Bowl"},
+            {"id": "birmingham", "name": "Birmingham Bowl"},
+            {"id": "hawaii", "name": "Hawai'i Bowl"},
+            {"id": "new-mexico", "name": "New Mexico Bowl"},
+        ],
+        "championship": {"id": "cfp-championship", "name": "CFP National Championship"},
+        "rounds": [
+            {"id": "conf-champ", "label": "Conference Championships"},
+            {"id": "cfp-first", "label": "CFP First Round"},
+            {"id": "cfp-quarters", "label": "CFP Quarterfinals"},
+            {"id": "cfp-semis", "label": "CFP Semifinals"},
+            {"id": "cfp-championship", "label": "CFP Championship"},
+        ],
+    }
 
     data = {
         "season": 2026,
@@ -167,12 +314,18 @@ def main():
         "fbsTeamIds": sorted(enriched.keys(), key=lambda x: enriched[x]["name"]),
         "schedules": schedules,
         "games": list(all_games.values()),
-        "notes": ["Regular-season only.", "Ignores real 2026 results; re-sims from Week 1."],
+        "postseasonMeta": postseasonMeta,
+        "rosterTeams": sorted(roster_ok, key=lambda x: int(x) if x.isdigit() else x),
+        "notes": [
+            "Regular-season from ESPN; postseason generated by sim rules (see README).",
+            "Ignores real 2026 results; re-sims from Week 1.",
+            "Rosters lazy-loaded from data/rosters/{id}.json",
+        ],
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(data, f, separators=(",", ":"))
-    print("wrote", OUT, "FBS", len(enriched), "games", len(all_games))
+    print("wrote", OUT, "FBS", len(enriched), "games", len(all_games), "rosters", len(roster_ok), "missing", len(roster_missing))
 
 if __name__ == "__main__":
     main()
