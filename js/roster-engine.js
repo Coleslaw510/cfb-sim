@@ -34,6 +34,7 @@
     if (!roster) return { id: null, players: [], depth: {} };
     return {
       id: roster.id,
+      ovrSource: roster.ovrSource || null,
       players: (roster.players || []).map((p) => Object.assign({}, p)),
       depth: Object.assign(
         {},
@@ -100,6 +101,47 @@
    * Soft rating boost from owned all-time players so purchases matter beyond names.
    * Caps keep the sim from breaking.
    */
+
+  /**
+   * Soft offense/defense signal from depth-chart starter OVRs (40–99).
+   * Same scale as all-time shop OVRs; used when team ratings need a roster-aware nudge.
+   * Caps match ratingBoostFromOwned so shop + roster stay consistent.
+   */
+  function ratingFromRosterDepth(roster) {
+    if (!roster || !roster.players || !roster.depth) {
+      return { offense: 0, defense: 0, overall: 0, starterOvrs: [] };
+    }
+    const OFF = ["QB", "RB", "WR", "TE", "OL"];
+    const DEF = ["DL", "LB", "DB"];
+    const starterOvrs = [];
+    function slotOvr(pos, slot) {
+      const idxs = roster.depth[pos] || [];
+      const i = idxs[slot];
+      if (i == null) return null;
+      const p = roster.players[i];
+      if (!p || p.ovr == null) return null;
+      return Number(p.ovr);
+    }
+    let offSum = 0, offN = 0, defSum = 0, defN = 0;
+    // Weight skill positions + OL a bit like a video-game team OVR
+    const offSlots = [["QB",0,1.4],["RB",0,1.0],["WR",0,1.0],["WR",1,0.85],["TE",0,0.7],["OL",0,0.9],["OL",1,0.85],["OL",2,0.85],["OL",3,0.8],["OL",4,0.8]];
+    const defSlots = [["DL",0,1.0],["DL",1,0.95],["DL",2,0.9],["LB",0,1.0],["LB",1,0.9],["DB",0,1.0],["DB",1,0.95],["DB",2,0.9],["DB",3,0.85]];
+    for (const [pos, slot, w] of offSlots) {
+      const o = slotOvr(pos, slot);
+      if (o == null) continue;
+      offSum += o * w; offN += w; starterOvrs.push({ pos, slot, ovr: o });
+    }
+    for (const [pos, slot, w] of defSlots) {
+      const o = slotOvr(pos, slot);
+      if (o == null) continue;
+      defSum += o * w; defN += w; starterOvrs.push({ pos, slot, ovr: o });
+    }
+    const offense = offN ? Math.round((offSum / offN) * 10) / 10 : 0;
+    const defense = defN ? Math.round((defSum / defN) * 10) / 10 : 0;
+    const overall = offense && defense ? Math.round(((offense + defense) / 2) * 10) / 10 : offense || defense;
+    return { offense, defense, overall, starterOvrs };
+  }
+
   function ratingBoostFromOwned(ownedCatalogPlayers) {
     let off = 0;
     let def = 0;
@@ -141,6 +183,7 @@
     cloneRoster,
     insertPlayer,
     applyOwnedPlayers,
+    ratingFromRosterDepth,
     ratingBoostFromOwned,
     applyBoostToTeam,
   };

@@ -1,0 +1,357 @@
+{
+  "source": "https://www.teamcrafters.net/rosters/CFB27/10-02-26",
+  "rosterVersion": "10-02-26",
+  "mappedTeams": 136,
+  "unmatchedTeams": [
+    "Sacramento State University"
+  ],
+  "mergeStats": {
+    "teamsMerged": 137,
+    "playersMapped": 8987,
+    "playersEstimated": 4342,
+    "playersAddedFromTc": 1584,
+    "samples": [
+      {
+        "team": "Miami",
+        "espnId": "2390",
+        "players": 108,
+        "mapped": 69,
+        "added": 10,
+        "stars": [
+          {
+            "n": "Malachi Toney",
+            "p": "WR",
+            "ovr": 97
+          },
+          {
+            "n": "Darian Mensah",
+            "p": "QB",
+            "ovr": 94
+          },
+          {
+            "n": "Mark Fletcher Jr.",
+            "p": "RB",
+            "ovr": 93
+          },
+          {
+            "n": "Ahmad Moten Sr.",
+            "p": "DL",
+            "ovr": 91
+          },
+          {
+            "n": "Cooper Barkate",
+            "p": "WR",
+            "ovr": 90
+          }
+        ]
+      },
+      {
+        "team": "Indiana",
+        "espnId": "84",
+        "players": 103,
+        "mapped": 75,
+        "added": 6,
+        "stars": [
+          {
+            "n": "Carter Smith",
+            "p": "OL",
+            "ovr": 97
+          },
+          {
+            "n": "Charlie Becker",
+            "p": "WR",
+            "ovr": 92
+          },
+          {
+            "n": "Tyrique Tucker",
+            "p": "DL",
+            "ovr": 92
+          },
+          {
+            "n": "Drew Evans",
+            "p": "OL",
+            "ovr": 91
+          },
+          {
+            "n": "Rolijah Hardy",
+            "p": "LB",
+            "ovr": 91
+          }
+        ]
+      },
+      {
+        "team": "Ohio State",
+        "espnId": "194",
+        "players": 111,
+        "mapped": 67,
+        "added": 14,
+        "stars": [
+          {
+            "n": "Jeremiah Smith",
+            "p": "WR",
+            "ovr": 99
+          },
+          {
+            "n": "Julian Sayin",
+            "p": "QB",
+            "ovr": 94
+          },
+          {
+            "n": "Luke Montgomery",
+            "p": "OL",
+            "ovr": 92
+          },
+          {
+            "n": "Kenyatta Jackson Jr.",
+            "p": "DE",
+            "ovr": 91
+          },
+          {
+            "n": "Bo Jackson",
+            "p": "RB",
+            "ovr": 90
+          }
+        ]
+      },
+      {
+        "team": "Oregon",
+        "espnId": "2483",
+        "players": 110,
+        "mapped": 64,
+        "added": 12,
+        "stars": [
+          {
+            "n": "Dante Moore",
+            "p": "QB",
+            "ovr": 94
+          },
+          {
+            "n": "Matayo Uiagalelei",
+            "p": "RE",
+            "ovr": 94
+          },
+          {
+            "n": "Iapani Laloulu",
+            "p": "OL",
+            "ovr": 93
+          },
+          {
+            "n": "Koi Perich",
+            "p": "DB",
+            "ovr": 93
+          },
+          {
+            "n": "A'Mauri Washington",
+            "p": "DT",
+            "ovr": 93
+          }
+        ]
+      },
+      {
+        "team": "Notre Dame",
+        "espnId": "87",
+        "players": 108,
+        "mapped": 75,
+        "added": 9,
+        "stars": [
+          {
+            "n": "Leonard Moore",
+            "p": "CB",
+            "ovr": 97
+          },
+          {
+            "n": "CJ Carr",
+            "p": "QB",
+            "ovr": 93
+          },
+          {
+            "n": "Drayk Bowen",
+            "p": "LB",
+            "ovr": 91
+          },
+          {
+            "n": "Anthonie Knapp",
+            "p": "OL",
+            "ovr": 90
+          },
+          {
+            "n": "Brauntae Johnson",
+            "p": "S",
+            "ovr": 90
+          }
+        ]
+      },
+      {
+        "team": "Florida",
+        "espnId": "57",
+        "players": 113,
+        "mapped": 58,
+        "added": 15,
+        "stars": [
+          {
+            "n": "Jadan Baugh",
+            "p": "RB",
+            "ovr": 96
+          },
+          {
+            "n": "Eric Singleton Jr.",
+            "p": "WR",
+            "ovr": 90
+          },
+          {
+            "n": "Vernell Brown III",
+            "p": "WR",
+            "ovr": 88
+          },
+          {
+            "n": "Myles Graham",
+            "p": "LB",
+            "ovr": 87
+          },
+          {
+            "n": "Bryce Thornton",
+            "p": "SS",
+            "ovr": 87
+          }
+        ]
+      },
+      {
+        "team": "Missouri",
+        "espnId": "142",
+        "players": 108,
+        "mapped": 62,
+        "added": 20,
+        "stars": [
+          {
+            "n": "Cayden Green",
+            "p": "OL",
+            "ovr": 96
+          },
+          {
+            "n": "Ahmad Hardy",
+            "p": "RB",
+            "ovr": 96
+          },
+          {
+            "n": "Cayden Lee",
+            "p": "WR",
+            "ovr": 89
+          },
+          {
+            "n": "Jamal Roberts",
+            "p": "RB",
+            "ovr": 87
+          },
+          {
+            "n": "Dominick Giudice",
+            "p": "OL",
+            "ovr": 86
+          }
+        ]
+      },
+      {
+        "team": "Ole Miss",
+        "espnId": "145",
+        "players": 109,
+        "mapped": 61,
+        "added": 12,
+        "stars": [
+          {
+            "n": "Kewan Lacy",
+            "p": "RB",
+            "ovr": 96
+          },
+          {
+            "n": "Trinidad Chambliss",
+            "p": "QB",
+            "ovr": 95
+          },
+          {
+            "n": "Will Echoles",
+            "p": "DT",
+            "ovr": 94
+          },
+          {
+            "n": "Suntarine Perkins",
+            "p": "LB",
+            "ovr": 92
+          },
+          {
+            "n": "Jamarious Brown",
+            "p": "DT",
+            "ovr": 89
+          }
+        ]
+      },
+      {
+        "team": "Texas",
+        "espnId": "251",
+        "players": 109,
+        "mapped": 62,
+        "added": 16,
+        "stars": [
+          {
+            "n": "Colin Simmons",
+            "p": "RE",
+            "ovr": 97
+          },
+          {
+            "n": "Trevor Goosby",
+            "p": "OL",
+            "ovr": 95
+          },
+          {
+            "n": "Cam Coleman",
+            "p": "WR",
+            "ovr": 94
+          },
+          {
+            "n": "Rasheem Biles",
+            "p": "LB",
+            "ovr": 93
+          },
+          {
+            "n": "Arch Manning",
+            "p": "QB",
+            "ovr": 91
+          }
+        ]
+      },
+      {
+        "team": "Alabama",
+        "espnId": "333",
+        "players": 117,
+        "mapped": 55,
+        "added": 19,
+        "stars": [
+          {
+            "n": "Bray Hubbard",
+            "p": "DB",
+            "ovr": 94
+          },
+          {
+            "n": "Zabien Brown",
+            "p": "DB",
+            "ovr": 92
+          },
+          {
+            "n": "Ryan Coleman-Williams",
+            "p": "WR",
+            "ovr": 91
+          },
+          {
+            "n": "Keon Sabb",
+            "p": "DB",
+            "ovr": 90
+          },
+          {
+            "n": "Lotzeir Brooks",
+            "p": "WR",
+            "ovr": 88
+          }
+        ]
+      }
+    ]
+  },
+  "teamRatingsUpdated": 137
+}

@@ -621,6 +621,12 @@ table.rank-table tr.mine { background: #f3f7ff; }
 }
 .ovr-pill.elite { background: linear-gradient(145deg, #f6d365, #b8860b); color: #2a1c00; }
 .ovr-pill.great { background: var(--accent); }
+.depth-group .ovr-pill {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.35rem;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
 .shop-card-player .sp-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
 .shop-cost { font-weight: 700; color: #7a5b10; font-variant-numeric: tabular-nums; }
 .btn-buy { padding: 8px 12px; }

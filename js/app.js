@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v6";
-  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5"];
+  const STORAGE_KEY = "cfb-sim-2026-v7";
+  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5", "cfb-sim-2026-v6"];
   let DATA = null;
 
   function createFreshState() {
@@ -891,7 +891,7 @@
         <img src="${t.logo}" alt="" width="36" height="36" onerror="this.style.visibility='hidden'" />
         <div>
           <strong>${escapeHtml(t.shortName || t.name)} depth chart</strong>
-          <div class="muted small">${roster.players.length} players · ESPN base${(roster.players||[]).filter(p=>p.src==="alltime").length ? " + " + (roster.players||[]).filter(p=>p.src==="alltime").length + " all-time" : ""}${String(tid)===String(state.teamId) && (state.ownedPlayerIds||[]).length ? " · shop active" : ""}</div>
+          <div class="muted small">${roster.players.length} players · ${(roster.ovrSource||"").indexOf("teamcrafters")>=0?"CFB27 OVRs":"ESPN base"}${(roster.players||[]).filter(p=>p.src==="alltime").length ? " + " + (roster.players||[]).filter(p=>p.src==="alltime").length + " all-time" : ""}${(roster.players||[]).some(p=>p.ovr!=null) ? " · depth by OVR" : ""}${String(tid)===String(state.teamId) && (state.ownedPlayerIds||[]).length ? " · shop active" : ""}</div>
         </div>
       </div>
       <div class="depth-grid">
@@ -907,8 +907,9 @@
                     .map((i, slot) => {
                       const p = roster.players[i];
                       if (!p) return "";
-                      const at = p.src === "alltime" ? ` <span class="class-badge" title="All-time shop">AT${p.ovr != null ? " " + p.ovr : ""}</span>` : "";
-                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)}${at} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
+                      const at = p.src === "alltime" ? ` <span class="class-badge" title="All-time shop">AT</span>` : (p.src === "tc" ? ` <span class="class-badge" title="TeamCrafters CFB27">TC</span>` : "");
+                      const ovr = p.ovr != null ? ` <span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}" title="Overall">${p.ovr}</span>` : "";
+                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)}${at}${ovr} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
                     })
                     .join("")}
                 </ol>

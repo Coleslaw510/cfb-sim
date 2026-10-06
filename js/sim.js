@@ -62,7 +62,7 @@
       const tryIdx = (i) => {
         const p = roster.players[i];
         if (!p) return null;
-        return { name: p.n, class: normalizeClass(p.c) };
+        return { name: p.n, class: normalizeClass(p.c), ovr: p.ovr != null ? Number(p.ovr) : null };
       };
       if (idxs[slot] != null) {
         const hit = tryIdx(idxs[slot]);
@@ -73,7 +73,7 @@
         if (hit) return hit;
       }
     }
-    return { name: pickName(rng), class: "" };
+    return { name: pickName(rng), class: "", ovr: null };
   }
 
   function depthName(roster, pos, slot, rng) {
