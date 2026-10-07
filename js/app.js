@@ -577,7 +577,7 @@
   function showSeason() {
     $("#view-picker").hidden = true;
     $("#view-season").hidden = false;
-    if ($("#view-shop")) $("#view-shop").hidden = true;
+    $("#topbarActions").hidden = false;
     renderSeason();
   }
 
@@ -585,6 +585,7 @@
     $("#view-picker").hidden = false;
     $("#view-season").hidden = true;
     if ($("#view-shop")) $("#view-shop").hidden = true;
+    $("#topbarActions").hidden = true;
   }
 
   function phaseLabel() {
@@ -624,6 +625,8 @@
     const btnChunk = $("#btnSimPostseason");
     $("#recordLabel").textContent = rec.w + "–" + rec.l;
 
+    const btnSeasonShop = $("#btnSeasonShop");
+    const btnTopShop = $("#btnTopShop");
     if (state.phase === "regular") {
       const next = state.currentWeek;
       const done = next > maxWeek();
@@ -651,6 +654,19 @@
       btnChunk.hidden = false;
       btnChunk.textContent = "Sim rest of postseason";
     }
+    // Always keep shop on the main season screen (not only via Change Team → picker).
+    const shopLabel = state.phase === "complete" || isPreseasonShopWindow()
+      ? "All-Time Shop"
+      : "Browse All-Time Shop";
+    if (btnSeasonShop) {
+      btnSeasonShop.hidden = false;
+      btnSeasonShop.textContent = shopLabel;
+    }
+    if (btnTopShop) {
+      btnTopShop.hidden = false;
+      btnTopShop.textContent = shopLabel;
+    }
+
     renderSchedule();
     renderBox();
     renderStandings();
@@ -1612,6 +1628,7 @@
     $("#view-picker").hidden = true;
     $("#view-season").hidden = true;
     $("#view-shop").hidden = false;
+    $("#topbarActions").hidden = shopReturn === "picker";
     updateCoinUI();
   }
 
@@ -1697,7 +1714,7 @@
   }
 
   /**
-   * From the Shop tab (or complete-season CTA). Always opens the shop.
+   * From the main season screen (or topbar). Always opens the shop.
    * Purchases remain gated by canPurchaseInShop(); mid-season is browse-only.
    */
   function openShopFromSeason() {
@@ -2293,41 +2310,18 @@
     toast("Full reset · pick a team to start fresh");
   }
 
-  const PRIMARY_TABS = ["schedule", "box", "depth", "standings", "shop", "more"];
-  const SECONDARY_TABS = ["top25", "stats", "postseason", "recap", "history"];
-  const ALL_PANELS = PRIMARY_TABS.concat(SECONDARY_TABS).concat(["shop-tab"]);
-
   function switchTab(name) {
-    if (name === "shop") {
-      // Shop is a full view; keep More/primary inactive until return
-      openShopFromSeason();
-      return;
-    }
-
-    const isSecondary = SECONDARY_TABS.includes(name);
-    const activePrimary = isSecondary ? "more" : name;
-
-    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === activePrimary));
-
-    ALL_PANELS.forEach((p) => {
+    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history"];
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+    tabs.forEach((p) => {
       const el = $("#panel-" + p);
-      if (!el) return;
-      // Primary shop tab is a stub — shop uses view-shop
-      if (p === "shop" || p === "shop-tab") {
-        el.hidden = true;
-        return;
-      }
-      el.hidden = p !== name;
+      if (el) el.hidden = p !== name;
     });
-
     if (name === "depth") renderDepth();
     if (name === "stats") renderSeasonStats();
     if (name === "postseason") renderPostseason();
     if (name === "recap") renderRecap();
     if (name === "history") renderHistory();
-    if (name === "top25") renderTop25();
-    if (name === "standings") renderStandings();
-    if (name === "schedule") renderSchedule();
   }
 
   /* ---------- Boot ---------- */
@@ -2408,17 +2402,10 @@
     bindShop();
     const browse = $("#btnBrowseShop");
     if (browse) browse.addEventListener("click", () => openShopFromPicker());
-
-    // More panel: secondary destinations + back links
-    $$("[data-goto]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const dest = btn.getAttribute("data-goto");
-        if (dest) switchTab(dest);
-      });
-    });
-    $$("[data-back-more]").forEach((btn) => {
-      btn.addEventListener("click", () => switchTab("more"));
-    });
+    const seasonShop = $("#btnSeasonShop");
+    if (seasonShop) seasonShop.addEventListener("click", () => openShopFromSeason());
+    const topShop = $("#btnTopShop");
+    if (topShop) topShop.addEventListener("click", () => openShopFromSeason());
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {
