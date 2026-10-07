@@ -139,8 +139,17 @@
     const rng = mulberry32(seed);
 
     const homeBoost = meta.neutralSite ? 0 : 2.2;
-    const homeExp = expectedPoints(homeTeam.offense, awayTeam.defense, homeBoost);
-    const awayExp = expectedPoints(awayTeam.offense, homeTeam.defense, 0);
+    let homeExp = expectedPoints(homeTeam.offense, awayTeam.defense, homeBoost);
+    let awayExp = expectedPoints(awayTeam.offense, homeTeam.defense, 0);
+
+    // Talent gap: overall mismatches should win more often (upsets still happen).
+    const homeOvr = Number(homeTeam.overall);
+    const awayOvr = Number(awayTeam.overall);
+    const ovrGap = (Number.isFinite(homeOvr) ? homeOvr : 60) - (Number.isFinite(awayOvr) ? awayOvr : 60);
+    const absGap = Math.abs(ovrGap);
+    // ~0.22 pts expected swing per OVR (on top of off/def already in expectedPoints)
+    homeExp = clamp(homeExp + ovrGap * 0.22, 8, 58);
+    awayExp = clamp(awayExp - ovrGap * 0.22, 8, 58);
 
     // Modern CFB: ~11–14 possessions per side is common
     const homeDrives = 11 + Math.floor(rng() * 4);
@@ -153,8 +162,9 @@
       let to = 0;
       // ~5.45 pts per scoring drive on avg (mix of TDs/FGs) → divisor tracks expPts
       const pScore = clamp(expPts / (drives * 5.45), 0.22, 0.78);
-      // Game-script variance: some days offenses click / stall without wall-to-wall shootouts
-      const tempo = clamp(0.90 + rng() * 0.22, 0.88, 1.14);
+      // Tighter game-script variance when talent gap is large (fewer coin-flip mismatches)
+      const tempoSpread = absGap >= 12 ? 0.12 : absGap >= 7 ? 0.16 : 0.22;
+      const tempo = clamp(0.90 + rng() * tempoSpread, 0.88, 1.14);
       const pAdj = clamp(pScore * tempo, 0.18, 0.82);
       for (let i = 0; i < drives; i++) {
         const r = rng();
@@ -180,6 +190,26 @@
     if (homeS.pts + awayS.pts < 21) {
       if (rng() < 0.5) homeS.pts += 7;
       else awayS.pts += 7;
+    }
+
+    // Upset dampener: big favorites still lose sometimes, but not constantly.
+    // When |OVR gap| is large and the underdog is ahead (or tied heading to OT),
+    // chance to "rescue" the favorite with a late scoring bump.
+    if (absGap >= 6) {
+      const homeFav = ovrGap > 0;
+      const favPts = homeFav ? homeS.pts : awayS.pts;
+      const dogPts = homeFav ? awayS.pts : homeS.pts;
+      if (favPts <= dogPts) {
+        // gap 6 ≈ 11%, gap 10 ≈ 33%, gap 15 ≈ 60%, capped ~72%
+        const pRescue = clamp((absGap - 5) * 0.055, 0, 0.72);
+        if (rng() < pRescue) {
+          let need = dogPts - favPts + 3 + Math.floor(rng() * 5);
+          let add = 0;
+          while (add < need) add += rng() < 0.68 ? 7 : 3;
+          if (homeFav) homeS.pts += add;
+          else awayS.pts += add;
+        }
+      }
     }
 
     // College OT: equal possessions each period from the opponent ~25.

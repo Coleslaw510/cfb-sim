@@ -1646,9 +1646,9 @@
     }
     if (blurb) {
       if (between) {
-        blurb.textContent = "Spend coins on real historical greats. They join your depth chart as starters at their position and give a soft rating boost. ESPN rosters stay the default for everyone else.";
+        blurb.textContent = "Spend coins on real historical greats. They join your depth chart as starters and give a soft rating boost.";
       } else if (canBuy) {
-        blurb.textContent = "Browse the catalog before you sim. Starting coins can buy players now — they join your depth chart when you pick a team (or right away if you already have). Between-season shop stays available after each year.";
+        blurb.textContent = "Browse and buy before you sim. Purchases join your depth chart when you pick a team (or right away if you already have).";
       } else {
         blurb.textContent = "Browsing the catalog mid-season. Purchases unlock again between seasons (or reset to pre-season). Owned players already on your depth chart stay active.";
       }
@@ -1664,8 +1664,6 @@
 
   function refreshShopPanels() {
     populateShopTeamFilter();
-    renderShopGoals();
-    renderShopPayout();
     renderShopOwned();
     renderShopGrid();
     configureShopChrome();
@@ -1761,42 +1759,12 @@
     if (cur) sel.value = cur;
   }
 
-  function renderShopGoals() {
-    const el = $("#shopGoalsList");
-    if (!el || typeof CFBEconomy === "undefined") return;
-    let html = "";
-    let group = null;
-    for (const g of CFBEconomy.GOAL_DEFS) {
-      if (g.group !== group) {
-        group = g.group;
-        html += `<div class="goal-group">${escapeHtml(group)}</div>`;
-      }
-      const extra = g.perEvent ? " (each)" : "";
-      html += `<div class="goal-row"><span>${escapeHtml(g.label)}${extra}</span><span class="goal-amt">+${g.amount}</span></div>`;
-    }
-    el.innerHTML = html;
-  }
-
-  function renderShopPayout() {
-    const el = $("#shopPayoutBody");
-    if (!el) return;
-    const p = state.lastSeasonPayout;
-    if (!p) {
-      el.innerHTML = "Finish a season to earn coins.";
-      return;
-    }
-    const lines = (p.lines || [])
-      .map((l) => `<div class="payout-line"><span>${escapeHtml(l.label)}</span><span class="goal-amt">+${l.amount}</span></div>`)
-      .join("") || "<div>No goals hit.</div>";
-    el.innerHTML = lines + `<div class="payout-total">${p.year} payout +${p.total}</div>`;
-  }
-
   function renderShopOwned() {
     const el = $("#shopOwnedList");
     if (!el) return;
     const owned = ownedCatalogPlayers();
     if (!owned.length) {
-      el.innerHTML = "None yet — browse and buy below.";
+      el.innerHTML = "None yet — buy players from the catalog.";
       return;
     }
     el.innerHTML = owned

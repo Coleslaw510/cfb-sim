@@ -577,7 +577,7 @@ table.rank-table tr.mine { background: #f3f7ff; }
   gap: 14px;
 }
 @media (min-width: 900px) {
-  .shop-layout { grid-template-columns: 280px 1fr; align-items: start; }
+  .shop-layout { grid-template-columns: 1fr 240px; align-items: start; }
 }
 .shop-side { display: flex; flex-direction: column; gap: 12px; }
 .shop-card {

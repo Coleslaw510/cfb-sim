@@ -26,10 +26,10 @@
   }
 
   function costForOvr(ovr) {
-    // Mid-tier shop: OVR 99 ≈ 800 (between old ~1270 and the brief ~440 cut).
-    // Earnable over a few solid seasons; not day-one trivial with starting coins.
+    // Harder top end: OVR 99 ≈ 1050–1100 (between brief ~800 mid and old ~1270).
+    // Mid OVRs stay reachable; elites take multiple strong seasons.
     const x = Math.max(0, Number(ovr) - 39);
-    return Math.round(8 + x * x * 0.22);
+    return Math.round(15 + x * x * 0.29);
   }
 
   function cloneRoster(roster) {
