@@ -231,3 +231,15 @@ python3 scripts/build_alltime_catalog.py
 ## License / attribution
 
 Schedules, ESPN rosters, team names, and logos © their respective owners / ESPN. CFB27-style overalls sourced from published TeamCrafters roster pages (https://www.teamcrafters.net/rosters/CFB27). This project is an unofficial fan tool for personal/educational use.
+
+## All-Time Leaderboard
+
+Public greatest-seasons board (never cleared by Full Reset):
+
+1. Finish a season → **Submit to All-Time Board** on the recap (optional coach name).
+2. The season is saved on your device immediately.
+3. Confirm the prefilled **GitHub issue** (label `leaderboard`) — a GitHub Action merges it into [`data/leaderboard.json`](data/leaderboard.json).
+4. Anyone can browse via **Leaderboard** (top bar, team picker, or season tab). Click a row for roster + schedule detail.
+
+Anti-spam: must complete a season; GitHub login to publish; basic record sanity checks.
+
