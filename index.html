@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CFB 2026 Season Sim</title>
+  <title>Sports Sims · CFB & NFL</title>
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,8 +14,8 @@
     <div class="brand">
       <span class="brand-mark">CFB</span>
       <div>
-        <div class="brand-title">2026 Season Sim</div>
-        <div class="brand-sub">FBS · client-side</div>
+        <div class="brand-title">Sports Sims</div>
+        <div class="brand-sub">CFB · NFL Dynasty</div>
       </div>
     </div>
     <div class="coin-chip" id="coinChip" hidden title="Shop coins">
@@ -34,8 +34,28 @@
   </header>
 
   <main>
+    <!-- MODE PICKER -->
+    <section id="view-mode" class="view">
+      <div class="hero">
+        <h1>Pick a game mode</h1>
+        <p>Choose College Season Sim or jump into NFL Dynasty.</p>
+      </div>
+      <div class="mode-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:18px">
+        <button type="button" class="mode-card" id="btnModeCFB" style="text-align:left;padding:18px;border-radius:14px;border:1px solid #243041;background:#121821;cursor:pointer;color:inherit">
+          <div style="color:#3d8bfd;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">College Football</div>
+          <strong style="display:block;margin:8px 0">Season Sim</strong>
+          <span style="color:#8b9bb0;font-size:14px">Week-by-week FBS, bowls, CFP, all-time shop.</span>
+        </button>
+        <a class="mode-card" href="https://coleslaw510.github.io/nfl-dynasty/?mode=nfl" style="text-align:left;padding:18px;border-radius:14px;border:1px solid #243041;background:#121821;text-decoration:none;color:inherit;display:block">
+          <div style="color:#22c55e;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">NFL</div>
+          <strong style="display:block;margin:8px 0">Dynasty</strong>
+          <span style="color:#8b9bb0;font-size:14px">Cap, free agency, draft, aging — classic dynasty.</span>
+        </a>
+      </div>
+    </section>
+
     <!-- TEAM PICKER -->
-    <section id="view-picker" class="view">
+    <section id="view-picker" class="view" hidden>
       <div class="hero">
         <h1>Pick your school</h1>
         <p>Choose an FBS team, load its real 2026 ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>

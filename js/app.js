@@ -577,7 +577,17 @@
   }
 
   /* ---------- Season UI ---------- */
+  function showMode() {
+    if ($("#view-mode")) $("#view-mode").hidden = false;
+    $("#view-picker").hidden = true;
+    $("#view-season").hidden = true;
+    if ($("#view-shop")) $("#view-shop").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
+    $("#topbarSeasonActions").hidden = true;
+  }
+
   function showSeason() {
+    if ($("#view-mode")) $("#view-mode").hidden = true;
     $("#view-picker").hidden = true;
     $("#view-season").hidden = false;
     if ($("#view-shop")) $("#view-shop").hidden = true;
@@ -587,6 +597,7 @@
   }
 
   function showPicker() {
+    if ($("#view-mode")) $("#view-mode").hidden = true;
     $("#view-picker").hidden = false;
     $("#view-season").hidden = true;
     if ($("#view-shop")) $("#view-shop").hidden = true;
@@ -2761,8 +2772,21 @@
     });
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
+    const params = new URLSearchParams(location.search);
+    const btnMode = $("#btnModeCFB");
+    if (btnMode) btnMode.addEventListener("click", () => {
+      history.replaceState({}, "", "?mode=cfb");
+      showPicker();
+      updateCoinUI();
+    });
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {
       showSeason();
+      updateCoinUI();
+    } else if (params.get("mode") === "cfb" || params.get("mode") === "college") {
+      showPicker();
+      updateCoinUI();
+    } else if ($("#view-mode")) {
+      showMode();
       updateCoinUI();
     } else {
       showPicker();
