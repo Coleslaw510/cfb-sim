@@ -1,0 +1,101 @@
+name: Merge leaderboard submission
+
+on:
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to merge (optional)"
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  merge:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue && (
+        contains(github.event.issue.title, '[CFB Leaderboard]') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'leaderboard')
+      ))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load issue body
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NUM="${{ github.event.inputs.issue_number }}"
+            if [ -z "$NUM" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            NUM="${{ github.event.issue.number }}"
+          fi
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          gh issue view "$NUM" --repo "${{ github.repository }}" --json body,title,labels > /tmp/issue.json
+          python3 - <<'PY'
+          import json, pathlib
+          data = json.loads(pathlib.Path("/tmp/issue.json").read_text())
+          pathlib.Path("/tmp/issue_body.txt").write_text(data.get("body") or "", encoding="utf-8")
+          print("title:", data.get("title"))
+          PY
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Merge into leaderboard.json
+        id: merge
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ISSUE_BODY_FILE: /tmp/issue_body.txt
+        run: |
+          set -euo pipefail
+          export ISSUE_BODY="$(cat /tmp/issue_body.txt)"
+          set +e
+          python3 scripts/merge_leaderboard_issue.py
+          CODE=$?
+          set -e
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "$CODE" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit board update
+        if: steps.merge.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/leaderboard.json
+          if git diff --staged --quiet; then
+            echo "No board changes"
+            exit 0
+          fi
+          git commit -m "chore: add all-time leaderboard season (#${{ steps.issue.outputs.number }})"
+          git push
+
+      - name: Comment + close issue
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NUM="${{ steps.issue.outputs.number }}"
+          if [ "${{ steps.merge.outputs.ok }}" = "true" ]; then
+            gh issue comment "$NUM" --body "✅ Merged into the public All-Time Board. It will show on the site after GitHub Pages rebuilds (usually under a minute). Thanks!"
+            gh issue edit "$NUM" --add-label leaderboard || true
+            gh issue close "$NUM" --reason completed
+          else
+            gh issue comment "$NUM" --body "❌ Could not merge this submission. Make sure the issue body includes a \`<!-- cfb-leaderboard-entry {json} -->\` block from the in-game Submit button, with a finished-season record."
+            gh issue edit "$NUM" --add-label leaderboard || true
+          fi

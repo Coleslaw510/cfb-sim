@@ -800,3 +800,81 @@ table.rank-table tr.mine { background: #f3f7ff; }
   background: #fff;
 }
 .nonconf-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+
+/* All-Time Leaderboard */
+.hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+#topbarSeasonActions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.submit-lb-form { margin-top: 12px; }
+.submit-lb-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+.submit-lb-card h3 { margin: 0 0 6px; font-size: 16px; }
+.submit-lb-label { display: block; margin: 12px 0; font-size: 13px; font-weight: 600; }
+.submit-lb-label input {
+  display: block; width: 100%; margin-top: 6px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff;
+}
+.lb-shell { display: flex; flex-direction: column; gap: 12px; }
+.lb-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.lb-toolbar select {
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
+}
+.lb-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 860px) {
+  .lb-layout { grid-template-columns: 1.05fr 1fr; align-items: start; }
+}
+.lb-list-pane {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 70vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px;
+}
+.lb-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.lb-row:hover { background: #f3f7ff; }
+.lb-row.active { border-color: #9bb0d0; background: #f3f7ff; }
+.lb-rank { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.lb-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lb-team img { width: 28px; height: 28px; object-fit: contain; }
+.lb-team strong { display: block; font-size: 14px; }
+.lb-rec, .lb-meta, .lb-score { font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; }
+.lb-score { color: var(--accent); }
+.lb-detail-pane {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; box-shadow: var(--shadow);
+}
+.lb-detail-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.lb-detail-head h3 { margin: 0 0 4px; font-size: 18px; letter-spacing: -0.02em; }
+.lb-bowl { font-weight: 600; margin-top: 4px; }
+.lb-pending { margin-top: 8px; color: #8a5a00; background: #fff7e8; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.lb-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 640px) { .lb-detail-grid { grid-template-columns: 1fr; } }
+.lb-detail h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.lb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.lb-pos { display: inline-block; min-width: 28px; font-weight: 700; color: var(--accent); }
+.lb-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; background: #e8eef8; color: var(--accent); margin-left: 4px; }
+.lb-sched { display: flex; flex-direction: column; gap: 4px; }
+.lb-sched-row {
+  display: grid; grid-template-columns: 90px 1fr auto; gap: 8px;
+  font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line);
+}
+.lb-sched-row .win { color: var(--good); }
+.lb-sched-row .loss { color: var(--bad); }

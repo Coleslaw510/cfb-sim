@@ -32,6 +32,9 @@
   let shopFilter = { q: "", teamId: "", pos: "", sort: "ovr" };
   /** Where the shop was opened from: "recap" (between seasons) | "picker" | "season" (main season screen). */
   let shopReturn = "recap";
+  /** Where leaderboard was opened from: "picker" | "season" | "top". */
+  let leaderboardReturn = "picker";
+  let leaderboardCache = { public: [], updatedAt: null, sort: "score", selectedId: null };
 
   const rosterCache = {}; // teamId -> roster json
   const $ = (sel) => document.querySelector(sel);
@@ -577,7 +580,9 @@
   function showSeason() {
     $("#view-picker").hidden = true;
     $("#view-season").hidden = false;
-    $("#topbarActions").hidden = false;
+    if ($("#view-shop")) $("#view-shop").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
+    $("#topbarSeasonActions").hidden = false;
     renderSeason();
   }
 
@@ -585,7 +590,8 @@
     $("#view-picker").hidden = false;
     $("#view-season").hidden = true;
     if ($("#view-shop")) $("#view-shop").hidden = true;
-    $("#topbarActions").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
+    $("#topbarSeasonActions").hidden = true;
   }
 
   function phaseLabel() {
@@ -1509,9 +1515,11 @@
     }
     const actions = `<div class="recap-actions">
         <button type="button" class="btn btn-primary" id="btnOpenShop">All-Time Shop</button>
+        <button type="button" class="btn btn-ghost" id="btnSubmitLeaderboard">Submit to All-Time Board</button>
         <button type="button" class="btn btn-ghost" id="btnStartNextSeason">Start next season</button>
-        <span class="muted small">Shop between seasons · purchases stay on your roster</span>
-      </div>`;
+        <span class="muted small">Shop between seasons · submit finished seasons to the public board</span>
+      </div>
+      <div id="submitLeaderboardForm" class="submit-lb-form" hidden></div>`;
     const html = buildRecapHtml(recap, t, { actions, coinsHtml });
     wrap.hidden = false;
     wrap.innerHTML = html;
@@ -1521,6 +1529,9 @@
     });
     $$("#btnOpenShop").forEach((btn) => {
       btn.addEventListener("click", () => openShop());
+    });
+    $$("#btnSubmitLeaderboard").forEach((btn) => {
+      btn.addEventListener("click", () => openSubmitLeaderboardForm());
     });
   }
 
@@ -1627,8 +1638,9 @@
   function showShop() {
     $("#view-picker").hidden = true;
     $("#view-season").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
     $("#view-shop").hidden = false;
-    $("#topbarActions").hidden = shopReturn === "picker";
+    if ($("#topbarSeasonActions")) $("#topbarSeasonActions").hidden = shopReturn === "picker";
     updateCoinUI();
   }
 
@@ -2242,15 +2254,16 @@
     toast("Season reset · history kept");
   }
 
-  /** Remove every localStorage key this game writes (current + legacy). Auto-save still works after. */
+  /** Remove season save keys. Keeps the public Hall-of-Fame local cache (never resets with Full Reset). */
   function wipePersistedKeys() {
     try {
+      const hofKey = (typeof CFBLeaderboard !== "undefined" && CFBLeaderboard.HOF_KEY) || "cfb-sim-hof-v1";
       localStorage.removeItem(STORAGE_KEY);
       LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
       const extra = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.indexOf("cfb-sim") === 0) extra.push(k);
+        if (k && k.indexOf("cfb-sim") === 0 && k !== hofKey) extra.push(k);
       }
       extra.forEach((k) => localStorage.removeItem(k));
     } catch (_) { /* ignore quota / private mode */ }
@@ -2271,6 +2284,7 @@
     const conf = $("#confFilter");
     if (conf) conf.value = "";
     if ($("#view-shop")) $("#view-shop").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
     // Do not save() here — empty start has no team; first pick will auto-save again.
     renderPicker();
     showPicker();
@@ -2279,7 +2293,7 @@
   }
 
   function switchTab(name) {
-    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history"];
+    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history", "leaderboard"];
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
     tabs.forEach((p) => {
       const el = $("#panel-" + p);
@@ -2290,7 +2304,363 @@
     if (name === "postseason") renderPostseason();
     if (name === "recap") renderRecap();
     if (name === "history") renderHistory();
+    if (name === "leaderboard") renderLeaderboardInto($("#leaderboardMountSeason"), { embedded: true });
   }
+
+
+  /* ---------- All-Time Leaderboard ---------- */
+  function hideOtherViewsForLeaderboard() {
+    $("#view-picker").hidden = true;
+    $("#view-season").hidden = true;
+    if ($("#view-shop")) $("#view-shop").hidden = true;
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = false;
+    if ($("#topbarSeasonActions")) $("#topbarSeasonActions").hidden = true;
+  }
+
+  function openLeaderboard(from) {
+    leaderboardReturn = from || (state.teamId ? "season" : "picker");
+    if (leaderboardReturn === "season" && state.teamId) {
+      // Prefer in-season tab when already in a season
+      showSeason();
+      switchTab("leaderboard");
+      return;
+    }
+    hideOtherViewsForLeaderboard();
+    renderLeaderboardInto($("#leaderboardMount"), { embedded: false });
+  }
+
+  function closeLeaderboard() {
+    if ($("#view-leaderboard")) $("#view-leaderboard").hidden = true;
+    if (leaderboardReturn === "season" && state.teamId) {
+      showSeason();
+      switchTab("schedule");
+      return;
+    }
+    showPicker();
+    updateCoinUI();
+  }
+
+  function starterSnapshot(roster) {
+    if (!roster || !roster.depth || !roster.players) return [];
+    const order = ["QB", "RB", "WR", "TE", "OL", "DL", "LB", "DB", "K", "P"];
+    const out = [];
+    const seen = new Set();
+    for (const pos of order) {
+      const idxs = roster.depth[pos] || [];
+      const take = pos === "WR" || pos === "OL" || pos === "DL" || pos === "DB" ? 3 : pos === "LB" || pos === "RB" ? 2 : 1;
+      for (let i = 0; i < idxs.length && i < take; i++) {
+        const p = roster.players[idxs[i]];
+        if (!p) continue;
+        const key = (p.catalogId || p.n || "") + "|" + pos;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          name: p.n || "Player",
+          pos: pos,
+          ovr: p.ovr != null ? Number(p.ovr) : null,
+          src: p.src || "roster",
+          catalogId: p.catalogId || null,
+        });
+      }
+    }
+    return out.slice(0, 28);
+  }
+
+  function scheduleSnapshot() {
+    const teamId = state.teamId;
+    const rows = [];
+    const sched = (activeSchedules()[teamId] || []).slice().sort((a, b) => a.week - b.week || String(a.date || "").localeCompare(String(b.date || "")));
+    for (const g of sched) {
+      const res = state.results[g.eventId];
+      const oppId = g.opponentId;
+      const opp = team(oppId);
+      let result = null;
+      let score = null;
+      if (res) {
+        const mine = res.homeId === teamId ? res.homeScore : res.awayScore;
+        const theirs = res.homeId === teamId ? res.awayScore : res.homeScore;
+        result = mine > theirs ? "W" : mine < theirs ? "L" : "T";
+        score = mine + "-" + theirs;
+      }
+      rows.push({
+        week: g.week,
+        label: "Wk " + g.week,
+        oppId: oppId || null,
+        opp: opp ? (opp.shortName || opp.name) : (g.opponentName || "TBD"),
+        home: g.homeAway !== "away",
+        result,
+        score,
+      });
+    }
+    // Postseason games involving user
+    const ps = resultsList()
+      .filter((g) => (g.homeId === teamId || g.awayId === teamId) && (g.round || g.bowl))
+      .sort((a, b) => String(a.week || "").localeCompare(String(b.week || "")));
+    for (const g of ps) {
+      const oppId = g.homeId === teamId ? g.awayId : g.homeId;
+      const opp = team(oppId);
+      const mine = g.homeId === teamId ? g.homeScore : g.awayScore;
+      const theirs = g.homeId === teamId ? g.awayScore : g.homeScore;
+      rows.push({
+        week: g.week || "PS",
+        label: g.bowl || g.label || g.round || "Postseason",
+        oppId: oppId || null,
+        opp: opp ? (opp.shortName || opp.name) : "TBD",
+        home: g.homeId === teamId,
+        result: mine > theirs ? "W" : mine < theirs ? "L" : "T",
+        score: mine + "-" + theirs,
+      });
+    }
+    return rows.slice(0, 24);
+  }
+
+  async function buildLeaderboardEntry(coachName) {
+    if (state.phase !== "complete" || !state.teamId) {
+      throw new Error("Finish the postseason before submitting");
+    }
+    const recap = currentSeasonRecap();
+    const t = effectiveTeam(state.teamId) || team(state.teamId);
+    const roster = await effectiveRoster(state.teamId);
+    const shopBuys = ownedCatalogPlayers().map((p) => ({
+      id: p.id,
+      name: p.n || p.name,
+      pos: p.p || p.pos,
+      ovr: p.ovr != null ? Number(p.ovr) : null,
+      schoolId: p.schoolId || null,
+    }));
+    const fingerprint = CFBLeaderboard.simpleHash(
+      [
+        state.teamId,
+        state.seasonYear || 2026,
+        recap.record.w,
+        recap.record.l,
+        recap.bowlResult,
+        state.seasonSeed,
+        (state.ownedPlayerIds || []).slice().sort().join(","),
+      ].join("|")
+    );
+    const entry = {
+      id: String(state.teamId) + "-" + (state.seasonYear || 2026) + "-" + fingerprint,
+      fingerprint,
+      submittedAt: new Date().toISOString(),
+      coachName: (coachName || "").trim().slice(0, 40) || null,
+      teamId: String(state.teamId),
+      teamName: t.shortName || t.name,
+      teamFullName: t.name,
+      teamAbbr: t.abbreviation || null,
+      logo: t.logo || null,
+      conference: t.conference || recap.conference || null,
+      year: state.seasonYear || 2026,
+      record: { w: recap.record.w, l: recap.record.l },
+      confRecord: { w: recap.confRecord.w, l: recap.confRecord.l },
+      finalRank: recap.finalRank || null,
+      bowlResult: recap.bowlResult || null,
+      summary: recap.summary || null,
+      teamOvr: t.overall != null ? Number(t.overall) : null,
+      offense: t.offense != null ? Number(t.offense) : null,
+      defense: t.defense != null ? Number(t.defense) : null,
+      shopBuys,
+      keyPlayers: starterSnapshot(roster),
+      schedule: scheduleSnapshot(),
+    };
+    entry.score = CFBLeaderboard.greatnessScore(entry);
+    const err = CFBLeaderboard.validateEntry(entry, DATA.fbsTeamIds.map(String));
+    if (err) throw new Error(err);
+    return entry;
+  }
+
+  function openSubmitLeaderboardForm() {
+    const host = $("#submitLeaderboardForm");
+    if (!host) return;
+    if (state.phase !== "complete") {
+      toast("Finish the season first");
+      return;
+    }
+    host.hidden = false;
+    host.innerHTML = `
+      <div class="submit-lb-card">
+        <h3>Submit to All-Time Board</h3>
+        <p class="muted small">Saves on this device immediately. To publish for everyone, confirm a GitHub issue (free account). An Action merges it into the public board.</p>
+        <label class="submit-lb-label">Coach name <span class="muted">(optional)</span>
+          <input type="text" id="lbCoachName" maxlength="40" placeholder="e.g. Cole" autocomplete="nickname" />
+        </label>
+        <div class="recap-actions">
+          <button type="button" class="btn btn-primary" id="btnConfirmSubmitLb">Submit season</button>
+          <button type="button" class="btn btn-ghost" id="btnCancelSubmitLb">Cancel</button>
+        </div>
+        <div id="submitLbStatus" class="muted small"></div>
+      </div>`;
+    $("#btnCancelSubmitLb").addEventListener("click", () => {
+      host.hidden = true;
+      host.innerHTML = "";
+    });
+    $("#btnConfirmSubmitLb").addEventListener("click", () => {
+      confirmSubmitLeaderboard().catch((err) => {
+        console.error(err);
+        toast(err.message || "Submit failed");
+      });
+    });
+  }
+
+  async function confirmSubmitLeaderboard() {
+    const coach = (($("#lbCoachName") && $("#lbCoachName").value) || "").trim();
+    const status = $("#submitLbStatus");
+    if (status) status.textContent = "Building season snapshot…";
+    const entry = await buildLeaderboardEntry(coach);
+    CFBLeaderboard.upsertLocal(entry);
+    const pack = CFBLeaderboard.buildIssueUrl(entry);
+    if (status) {
+      status.innerHTML = pack.tooLong
+        ? "Entry saved locally. Payload is large — JSON copied if permitted; paste into a new GitHub issue titled with <code>[CFB Leaderboard]</code>."
+        : "Entry saved locally. Opening GitHub to publish — click <strong>Submit new issue</strong> on the next page.";
+    }
+    if (pack.tooLong) {
+      try {
+        await navigator.clipboard.writeText(pack.body);
+        toast("Saved locally · JSON copied — paste into a new GitHub issue");
+      } catch (_) {
+        toast("Saved locally · open GitHub Issues and paste the submission JSON");
+      }
+      window.open("https://github.com/Coleslaw510/cfb-sim/issues/new?labels=leaderboard&title=" + encodeURIComponent(pack.title), "_blank", "noopener");
+    } else {
+      toast("Saved locally · finish Submit new issue on GitHub to publish");
+      window.open(pack.url, "_blank", "noopener");
+    }
+  }
+
+  async function loadLeaderboardData(force) {
+    if (!force && leaderboardCache.public && leaderboardCache.public.length) {
+      return leaderboardCache;
+    }
+    try {
+      const board = await CFBLeaderboard.fetchPublicBoard();
+      leaderboardCache.public = board.entries || [];
+      leaderboardCache.updatedAt = board.updatedAt;
+    } catch (e) {
+      console.warn(e);
+      if (!leaderboardCache.public) leaderboardCache.public = [];
+    }
+    return leaderboardCache;
+  }
+
+  function renderLeaderboardDetail(entry) {
+    if (!entry) return '<div class="box-empty">Select a season.</div>';
+    const rec = entry.record || {};
+    const conf = entry.confRecord || {};
+    const players = (entry.keyPlayers || [])
+      .map((p) => `<li><span class="lb-pos">${escapeHtml(p.pos || "")}</span> ${escapeHtml(p.name || "")}${p.ovr != null ? ` <span class="muted">OVR ${p.ovr}</span>` : ""}${p.src === "alltime" ? ' <span class="lb-tag">AT</span>' : ""}</li>`)
+      .join("") || "<li class='muted'>No roster snapshot</li>";
+    const shop = (entry.shopBuys || [])
+      .map((p) => `<li>${escapeHtml(p.name || "")} <span class="muted">${escapeHtml(p.pos || "")} · ${p.ovr != null ? p.ovr : "—"}</span></li>`)
+      .join("") || "<li class='muted'>None</li>";
+    const sched = (entry.schedule || [])
+      .map((g) => {
+        const res = g.result ? `<strong class="${g.result === "W" ? "win" : g.result === "L" ? "loss" : ""}">${g.result}</strong>` : "—";
+        const score = g.score ? escapeHtml(g.score) : "";
+        return `<div class="lb-sched-row"><span>${escapeHtml(String(g.label || g.week))}</span><span>${g.home ? "vs" : "@"} ${escapeHtml(g.opp || "")}</span><span>${res} ${score}</span></div>`;
+      })
+      .join("") || '<div class="muted small">No schedule snapshot</div>';
+    return `
+      <div class="lb-detail">
+        <div class="lb-detail-head">
+          ${entry.logo ? `<img src="${entry.logo}" alt="" width="44" height="44" onerror="this.style.visibility='hidden'" />` : ""}
+          <div>
+            <h3>${entry.finalRank ? "#" + entry.finalRank + " " : ""}${escapeHtml(entry.teamFullName || entry.teamName || "Team")} · ${entry.year}</h3>
+            <div class="muted small">${escapeHtml(entry.conference || "")} · ${rec.w}–${rec.l} (${conf.w != null ? conf.w + "–" + conf.l : "—"}) · OVR ${entry.teamOvr != null ? entry.teamOvr : "—"}${entry.coachName ? " · Coach " + escapeHtml(entry.coachName) : ""}</div>
+            <div class="lb-bowl">${escapeHtml(entry.bowlResult || "")}</div>
+            ${entry.summary ? `<div class="muted small">${escapeHtml(entry.summary)}</div>` : ""}
+            ${entry.localPending ? '<div class="lb-pending">On this device — publish via GitHub issue to appear for everyone</div>' : ""}
+          </div>
+        </div>
+        <div class="lb-detail-grid">
+          <div>
+            <h4>Key players</h4>
+            <ul class="lb-list">${players}</ul>
+          </div>
+          <div>
+            <h4>Shop buys</h4>
+            <ul class="lb-list">${shop}</ul>
+          </div>
+        </div>
+        <h4>Schedule / results</h4>
+        <div class="lb-sched">${sched}</div>
+      </div>`;
+  }
+
+  async function renderLeaderboardInto(mount, opts) {
+    if (!mount) return;
+    opts = opts || {};
+    mount.innerHTML = '<div class="box-empty">Loading leaderboard…</div>';
+    await loadLeaderboardData(!!opts.force);
+    const local = CFBLeaderboard.loadLocalHof();
+    const merged = CFBLeaderboard.mergeBoards(leaderboardCache.public, local);
+    const sorted = CFBLeaderboard.sortEntries(merged, leaderboardCache.sort || "score");
+    if (!leaderboardCache.selectedId && sorted[0]) leaderboardCache.selectedId = sorted[0].fingerprint || sorted[0].id;
+    const selected = sorted.find((e) => (e.fingerprint || e.id) === leaderboardCache.selectedId) || sorted[0] || null;
+
+    const rows = sorted.length
+      ? sorted
+          .map((e, idx) => {
+            const id = e.fingerprint || e.id;
+            const rec = e.record || {};
+            const active = selected && (selected.fingerprint || selected.id) === id ? " active" : "";
+            const pending = e.localPending ? '<span class="lb-tag">local</span>' : "";
+            return `<button type="button" class="lb-row${active}" data-id="${escapeHtml(id)}">
+              <span class="lb-rank">${idx + 1}</span>
+              <span class="lb-team">
+                ${e.logo ? `<img src="${e.logo}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />` : ""}
+                <span>
+                  <strong>${e.finalRank ? "#" + e.finalRank + " " : ""}${escapeHtml(e.teamName || "Team")}</strong>
+                  <span class="muted small">${e.year}${e.coachName ? " · " + escapeHtml(e.coachName) : ""} ${pending}</span>
+                </span>
+              </span>
+              <span class="lb-rec">${rec.w || 0}–${rec.l || 0}</span>
+              <span class="lb-meta">${e.teamOvr != null ? "OVR " + e.teamOvr : "—"}</span>
+              <span class="lb-score">${e.score || 0}</span>
+            </button>`;
+          })
+          .join("")
+      : '<div class="box-empty">No seasons on the board yet. Finish a season and use <strong>Submit to All-Time Board</strong> on the recap.</div>';
+
+    const updated = leaderboardCache.updatedAt
+      ? new Date(leaderboardCache.updatedAt).toLocaleString("en-US", { timeZone: "America/Chicago" }) + " CT"
+      : "—";
+
+    mount.innerHTML = `
+      <div class="lb-shell">
+        <div class="lb-toolbar">
+          <select id="lbSort">
+            <option value="score">Sort: Greatest</option>
+            <option value="wins">Sort: Wins</option>
+            <option value="rank">Sort: Final rank</option>
+            <option value="ovr">Sort: Team OVR</option>
+            <option value="year">Sort: Year</option>
+            <option value="date">Sort: Submitted</option>
+          </select>
+          <span class="muted small">Public board updated: ${escapeHtml(updated)} · ${sorted.length} season${sorted.length === 1 ? "" : "s"}</span>
+        </div>
+        <div class="lb-layout">
+          <div class="lb-list-pane">${rows}</div>
+          <div class="lb-detail-pane" id="lbDetailPane">${renderLeaderboardDetail(selected)}</div>
+        </div>
+      </div>`;
+
+    const sortSel = mount.querySelector("#lbSort");
+    if (sortSel) {
+      sortSel.value = leaderboardCache.sort || "score";
+      sortSel.addEventListener("change", () => {
+        leaderboardCache.sort = sortSel.value;
+        renderLeaderboardInto(mount, opts);
+      });
+    }
+    mount.querySelectorAll(".lb-row").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        leaderboardCache.selectedId = btn.getAttribute("data-id");
+        renderLeaderboardInto(mount, opts);
+      });
+    });
+  }
+
 
   /* ---------- Boot ---------- */
   async function init() {
@@ -2374,6 +2744,21 @@
     if (seasonShop) seasonShop.addEventListener("click", () => openShopFromSeason());
     const topShop = $("#btnTopShop");
     if (topShop) topShop.addEventListener("click", () => openShopFromSeason());
+
+    const topLb = $("#btnTopLeaderboard");
+    if (topLb) topLb.addEventListener("click", () => openLeaderboard(state.teamId ? "season" : "picker"));
+    const browseLb = $("#btnBrowseLeaderboard");
+    if (browseLb) browseLb.addEventListener("click", () => openLeaderboard("picker"));
+    const lbBack = $("#btnLeaderboardBack");
+    if (lbBack) lbBack.addEventListener("click", () => closeLeaderboard());
+    const lbRefresh = $("#btnLeaderboardRefresh");
+    if (lbRefresh) lbRefresh.addEventListener("click", () => {
+      leaderboardCache.public = [];
+      const mount = $("#view-leaderboard") && !$("#view-leaderboard").hidden
+        ? $("#leaderboardMount")
+        : $("#leaderboardMountSeason");
+      renderLeaderboardInto(mount || $("#leaderboardMount"), { force: true });
+    });
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {

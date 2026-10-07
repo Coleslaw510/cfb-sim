@@ -23,10 +23,13 @@
       <strong id="coinBalance">0</strong>
       <span class="coin-label">coins</span>
     </div>
-    <div class="topbar-actions" id="topbarActions" hidden>
-      <button type="button" class="btn btn-ghost" id="btnTopShop" title="Browse or buy all-time players">All-Time Shop</button>
-      <button type="button" class="btn btn-ghost" id="btnChangeTeam">Change team</button>
-      <button type="button" class="btn btn-ghost danger" id="btnReset">Reset season</button>
+    <div class="topbar-actions">
+      <button type="button" class="btn btn-ghost" id="btnTopLeaderboard" title="All-time greatest seasons">Leaderboard</button>
+      <span id="topbarSeasonActions" hidden>
+        <button type="button" class="btn btn-ghost" id="btnTopShop" title="Browse or buy all-time players">All-Time Shop</button>
+        <button type="button" class="btn btn-ghost" id="btnChangeTeam">Change team</button>
+        <button type="button" class="btn btn-ghost danger" id="btnReset">Reset season</button>
+      </span>
     </div>
   </header>
 
@@ -38,7 +41,8 @@
         <p>Choose an FBS team, load its real 2026 ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>
         <div class="hero-actions">
           <button type="button" class="btn btn-ghost" id="btnBrowseShop">Browse All-Time Shop</button>
-          <span class="muted small">Check the catalog (and spend starting coins) before you sim.</span>
+          <button type="button" class="btn btn-ghost" id="btnBrowseLeaderboard">All-Time Leaderboard</button>
+          <span class="muted small">Shop before you sim · public greatest seasons never reset.</span>
         </div>
       </div>
       <div class="filters">
@@ -78,6 +82,7 @@
         <button type="button" class="tab" data-tab="postseason">Postseason</button>
         <button type="button" class="tab" data-tab="recap">Recap</button>
         <button type="button" class="tab" data-tab="history">History</button>
+        <button type="button" class="tab" data-tab="leaderboard">Leaderboard</button>
       </nav>
 
       <div id="panel-schedule" class="panel">
@@ -135,6 +140,26 @@
         </div>
         <div id="historyPanel" class="box-empty">No history yet.</div>
       </div>
+
+      <div id="panel-leaderboard" class="panel" hidden>
+        <div id="leaderboardMountSeason"></div>
+      </div>
+    </section>
+
+    <!-- PUBLIC ALL-TIME LEADERBOARD -->
+    <section id="view-leaderboard" class="view" hidden>
+      <div class="shop-header">
+        <div>
+          <div class="eyebrow">Public · never resets</div>
+          <h1>All-Time Leaderboard</h1>
+          <p class="muted">Greatest finished seasons from anyone on this site. Full Reset does not clear the board. Submit from your season recap.</p>
+        </div>
+        <div class="shop-header-actions">
+          <button type="button" class="btn btn-ghost" id="btnLeaderboardBack">Back</button>
+          <button type="button" class="btn btn-ghost" id="btnLeaderboardRefresh">Refresh</button>
+        </div>
+      </div>
+      <div id="leaderboardMount"></div>
     </section>
 
     <!-- BETWEEN-SEASON ALL-TIME SHOP -->
@@ -199,6 +224,7 @@
   <script src="js/sim.js"></script>
   <script src="js/roster-engine.js"></script>
   <script src="js/economy.js"></script>
+  <script src="js/leaderboard.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
