@@ -577,7 +577,7 @@
   function showSeason() {
     $("#view-picker").hidden = true;
     $("#view-season").hidden = false;
-    $("#topbarActions").hidden = false;
+    if ($("#view-shop")) $("#view-shop").hidden = true;
     renderSeason();
   }
 
@@ -585,7 +585,6 @@
     $("#view-picker").hidden = false;
     $("#view-season").hidden = true;
     if ($("#view-shop")) $("#view-shop").hidden = true;
-    $("#topbarActions").hidden = true;
   }
 
   function phaseLabel() {
@@ -609,19 +608,22 @@
     const year = state.seasonYear || 2026;
     const brandTitle = document.querySelector(".brand-title");
     if (brandTitle) brandTitle.textContent = year + " Season Sim";
+    const liveRanks = latestPollRanks();
+    let liveRank = liveRanks[state.teamId] || null;
+    if (liveRank == null && resultsList().length === 0 && t.apRank) liveRank = t.apRank;
+    const rankBit = liveRank ? ` · <span class="live-rank">#${liveRank}</span>` : "";
+    const shopBit = (state.ownedPlayerIds||[]).length ? ` · ${state.ownedPlayerIds.length} shop` : "";
     $("#myTeamChip").innerHTML = `
       <img src="${t.logo}" alt="" width="52" height="52" onerror="this.style.visibility='hidden'" />
       <div>
         <h2>${escapeHtml(t.name)}</h2>
-        <div class="sub">${year} · ${escapeHtml(t.conference)} · OVR ${(effectiveTeam(state.teamId)||t).overall}${t.apRank ? " · seeded AP #" + t.apRank : ""}${(state.ownedPlayerIds||[]).length ? " · " + state.ownedPlayerIds.length + " shop" : ""}</div>
+        <div class="sub">${year} · ${escapeHtml(t.conference)} · OVR ${(effectiveTeam(state.teamId)||t).overall}${rankBit}${shopBit}</div>
       </div>`;
 
     const btn = $("#btnSimWeek");
     const btnChunk = $("#btnSimPostseason");
     $("#recordLabel").textContent = rec.w + "–" + rec.l;
 
-    const btnSeasonShop = $("#btnSeasonShop");
-    const btnTopShop = $("#btnTopShop");
     if (state.phase === "regular") {
       const next = state.currentWeek;
       const done = next > maxWeek();
@@ -649,19 +651,6 @@
       btnChunk.hidden = false;
       btnChunk.textContent = "Sim rest of postseason";
     }
-    // Always keep shop on the main season screen (not only via Change Team → picker).
-    const shopLabel = state.phase === "complete" || isPreseasonShopWindow()
-      ? "All-Time Shop"
-      : "Browse All-Time Shop";
-    if (btnSeasonShop) {
-      btnSeasonShop.hidden = false;
-      btnSeasonShop.textContent = shopLabel;
-    }
-    if (btnTopShop) {
-      btnTopShop.hidden = false;
-      btnTopShop.textContent = shopLabel;
-    }
-
     renderSchedule();
     renderBox();
     renderStandings();
@@ -772,8 +761,9 @@
       const weekLabel = isPs ? escapeHtml(shortRoundTag(g.round)) : ("W" + g.week);
       const confLock = !isPs && isConferenceGameFor(state.teamId, g);
       const editable = !isPs && isPreseasonEditable() && !confLock;
-      const rankMine = myRank ? `<span class="rank-badge" title="Your rank">#${myRank}</span>` : "";
-      const rankOpp = oppRank ? `<span class="rank-badge" title="Opponent rank">#${oppRank}</span>` : "";
+      // Opponent rank ONLY on opponent (logo + name). Your rank ONLY next to "You".
+      const oppRankBadge = oppRank ? `<span class="rank-badge" title="Opponent rank">#${oppRank}</span>` : "";
+      const youRankSpan = myRank ? `<span class="you-rank" title="Your rank this week">#${myRank}</span> ` : "";
       const pin = opts.pinned ? " pinned-next" : "";
       const pinLabel = opts.pinned ? `<div class="next-game-label">${isPs ? "Your next game" : "Next up"}</div>` : "";
       return `
@@ -782,13 +772,13 @@
           <div class="week-num">${weekLabel}</div>
           <div class="opp team-link" data-team-id="${oppId || ""}" title="View roster">
             <span class="logo-wrap">
-              ${rankOpp ? `<span class="logo-rank">${oppRank}</span>` : ""}
+              ${oppRank ? `<span class="logo-rank">${oppRank}</span>` : ""}
               <img src="${opp.logo || ""}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
             </span>
             <div>
-              <div class="who">${prefix} ${rankOpp}${escapeHtml(opp.shortName || opp.name || "Opponent")}</div>
+              <div class="who">${prefix} ${oppRankBadge}${escapeHtml(opp.shortName || opp.name || "Opponent")}</div>
               <div class="where">${where}${confLock ? " · Conf" : ""}${editable ? " · Non-conf" : ""}</div>
-              <div class="matchup-ovrs">${rankMine}<span class="ovr-mini">You ${myOvr}</span> · <span class="ovr-mini">Opp ${oppOvr}</span></div>
+              <div class="matchup-ovrs"><span class="ovr-mini">${youRankSpan}You ${myOvr}</span><span>·</span><span class="ovr-mini">Opp ${oppOvr}</span></div>
             </div>
           </div>
           ${resultHtml}
@@ -1368,9 +1358,14 @@
                     .map((i, slot) => {
                       const p = roster.players[i];
                       if (!p) return "";
-                      const at = p.src === "alltime" ? ` <span class="class-badge" title="All-time shop">AT</span>` : (p.src === "tc" ? ` <span class="class-badge" title="TeamCrafters CFB27">TC</span>` : "");
-                      const ovr = p.ovr != null ? ` <span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}" title="Overall">${p.ovr}</span>` : "";
-                      return `<li><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span> <span class="pname">${escapeHtml(p.n)}</span> ${classBadge(p.c)}${at}${ovr} <span class="muted small">${escapeHtml(p.p)}</span></li>`;
+                      const isAt = p.src === "alltime" || String(p.c || "").toUpperCase() === "AT";
+                      let badge = "";
+                      if (isAt) badge = `<span class="class-badge at" title="All-time shop">AT</span>`;
+                      else if (p.src === "tc") badge = `<span class="class-badge" title="TeamCrafters CFB27">TC</span>`;
+                      else badge = classBadge(p.c);
+                      const ovr = p.ovr != null ? `<span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}" title="Overall">${p.ovr}</span>` : "";
+                      const name = escapeHtml(p.n || "");
+                      return `<li class="depth-row"><span class="depth-slot">${slot + 1}</span><span class="jersey">#${escapeHtml(p.j || "—")}</span><span class="pname" title="${name}">${name}</span><span class="depth-meta">${badge}${ovr}<span class="pos-tag">${escapeHtml(p.p || "")}</span></span></li>`;
                     })
                     .join("")}
                 </ol>
@@ -1617,7 +1612,6 @@
     $("#view-picker").hidden = true;
     $("#view-season").hidden = true;
     $("#view-shop").hidden = false;
-    $("#topbarActions").hidden = shopReturn === "picker";
     updateCoinUI();
   }
 
@@ -1703,7 +1697,7 @@
   }
 
   /**
-   * From the main season screen (or topbar). Always opens the shop.
+   * From the Shop tab (or complete-season CTA). Always opens the shop.
    * Purchases remain gated by canPurchaseInShop(); mid-season is browse-only.
    */
   function openShopFromSeason() {
@@ -1791,7 +1785,11 @@
     el.innerHTML = owned
       .slice()
       .sort((a, b) => b.ovr - a.ovr)
-      .map((p) => `<div class="owned-item"><span>${escapeHtml(p.n)} <span class="muted">${escapeHtml(p.p)} · ${escapeHtml(p.school)}</span></span><span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}">${p.ovr}</span></div>`)
+      .map((p) => {
+        const nm = escapeHtml(p.n || "");
+        const meta = escapeHtml(`${p.p || ""} · ${p.school || ""}`);
+        return `<div class="owned-item"><span class="owned-name" title="${nm} · ${meta}">${nm} <span class="owned-meta">${meta}</span></span><span class="ovr-pill ${p.ovr>=95?"elite":p.ovr>=88?"great":""}">${p.ovr}</span></div>`;
+      })
       .join("");
   }
 
@@ -2295,18 +2293,41 @@
     toast("Full reset · pick a team to start fresh");
   }
 
+  const PRIMARY_TABS = ["schedule", "box", "depth", "standings", "shop", "more"];
+  const SECONDARY_TABS = ["top25", "stats", "postseason", "recap", "history"];
+  const ALL_PANELS = PRIMARY_TABS.concat(SECONDARY_TABS).concat(["shop-tab"]);
+
   function switchTab(name) {
-    const tabs = ["schedule", "box", "standings", "top25", "stats", "depth", "postseason", "recap", "history"];
-    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-    tabs.forEach((p) => {
+    if (name === "shop") {
+      // Shop is a full view; keep More/primary inactive until return
+      openShopFromSeason();
+      return;
+    }
+
+    const isSecondary = SECONDARY_TABS.includes(name);
+    const activePrimary = isSecondary ? "more" : name;
+
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === activePrimary));
+
+    ALL_PANELS.forEach((p) => {
       const el = $("#panel-" + p);
-      if (el) el.hidden = p !== name;
+      if (!el) return;
+      // Primary shop tab is a stub — shop uses view-shop
+      if (p === "shop" || p === "shop-tab") {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = p !== name;
     });
+
     if (name === "depth") renderDepth();
     if (name === "stats") renderSeasonStats();
     if (name === "postseason") renderPostseason();
     if (name === "recap") renderRecap();
     if (name === "history") renderHistory();
+    if (name === "top25") renderTop25();
+    if (name === "standings") renderStandings();
+    if (name === "schedule") renderSchedule();
   }
 
   /* ---------- Boot ---------- */
@@ -2387,10 +2408,17 @@
     bindShop();
     const browse = $("#btnBrowseShop");
     if (browse) browse.addEventListener("click", () => openShopFromPicker());
-    const seasonShop = $("#btnSeasonShop");
-    if (seasonShop) seasonShop.addEventListener("click", () => openShopFromSeason());
-    const topShop = $("#btnTopShop");
-    if (topShop) topShop.addEventListener("click", () => openShopFromSeason());
+
+    // More panel: secondary destinations + back links
+    $$("[data-goto]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const dest = btn.getAttribute("data-goto");
+        if (dest) switchTab(dest);
+      });
+    });
+    $$("[data-back-more]").forEach((btn) => {
+      btn.addEventListener("click", () => switchTab("more"));
+    });
 
     if (usesGeneratedSchedule()) ensureGeneratedSchedule();
     if (state.teamId && DATA.teams[state.teamId] && DATA.teams[state.teamId].isFbs) {

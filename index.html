@@ -2,31 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CFB 2026 Season Sim</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#013369" />
+  <title>CFB Season Sim</title>
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark">CFB</span>
       <div>
-        <div class="brand-title">2026 Season Sim</div>
+        <div class="brand-title">Season Sim</div>
         <div class="brand-sub">FBS · client-side</div>
       </div>
     </div>
-    <div class="coin-chip" id="coinChip" hidden title="Shop coins">
-      <span class="coin-icon" aria-hidden="true">●</span>
-      <strong id="coinBalance">0</strong>
-      <span class="coin-label">coins</span>
-    </div>
-    <div class="topbar-actions" id="topbarActions" hidden>
-      <button type="button" class="btn btn-ghost" id="btnTopShop" title="Browse or buy all-time players">All-Time Shop</button>
-      <button type="button" class="btn btn-ghost" id="btnChangeTeam">Change team</button>
-      <button type="button" class="btn btn-ghost danger" id="btnReset">Reset season</button>
+    <div class="topbar-right">
+      <div class="coin-chip" id="coinChip" hidden title="Shop coins">
+        <span class="coin-icon" aria-hidden="true">●</span>
+        <strong id="coinBalance">0</strong>
+        <span class="coin-label">coins</span>
+      </div>
     </div>
   </header>
 
@@ -35,7 +33,7 @@
     <section id="view-picker" class="view">
       <div class="hero">
         <h1>Pick your school</h1>
-        <p>Choose an FBS team, load its real 2026 ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>
+        <p>Choose an FBS team, load its real ESPN schedule and roster, then sim the season week by week through bowls and the CFP.</p>
         <div class="hero-actions">
           <button type="button" class="btn btn-ghost" id="btnBrowseShop">Browse All-Time Shop</button>
           <span class="muted small">Check the catalog (and spend starting coins) before you sim.</span>
@@ -54,7 +52,7 @@
     <section id="view-season" class="view" hidden>
       <div id="recapCard" hidden></div>
 
-      <div class="season-header">
+      <div class="season-header" id="seasonHeader">
         <div class="team-chip" id="myTeamChip"></div>
         <div class="week-controls">
           <div class="week-meta">
@@ -62,22 +60,18 @@
             <strong id="weekLabel">Week 1</strong>
             <span id="recordLabel" class="muted">0–0</span>
           </div>
-          <button type="button" class="btn btn-primary" id="btnSimWeek">Sim next week</button>
+          <button type="button" class="btn btn-primary btn-sim" id="btnSimWeek">Sim next week</button>
           <button type="button" class="btn btn-ghost" id="btnSimPostseason" hidden>Sim rest of postseason</button>
-          <button type="button" class="btn btn-ghost" id="btnSeasonShop">Browse All-Time Shop</button>
         </div>
       </div>
 
-      <nav class="tabs" role="tablist">
+      <nav class="tabs" role="tablist" aria-label="Main">
         <button type="button" class="tab active" data-tab="schedule">Schedule</button>
-        <button type="button" class="tab" data-tab="box">Box score</button>
-        <button type="button" class="tab" data-tab="depth">Depth chart</button>
+        <button type="button" class="tab" data-tab="box">Box</button>
+        <button type="button" class="tab" data-tab="depth">Depth</button>
         <button type="button" class="tab" data-tab="standings">Standings</button>
-        <button type="button" class="tab" data-tab="top25">Top 25</button>
-        <button type="button" class="tab" data-tab="stats">Season stats</button>
-        <button type="button" class="tab" data-tab="postseason">Postseason</button>
-        <button type="button" class="tab" data-tab="recap">Recap</button>
-        <button type="button" class="tab" data-tab="history">History</button>
+        <button type="button" class="tab" data-tab="shop">Shop</button>
+        <button type="button" class="tab" data-tab="more">More</button>
       </nav>
 
       <div id="panel-schedule" class="panel">
@@ -104,34 +98,82 @@
         <div id="standingsTable"></div>
       </div>
 
-      <div id="panel-top25" class="panel" hidden>
+      <div id="panel-shop-tab" class="panel" hidden>
+        <div class="box-empty">Opening shop…</div>
+      </div>
+
+      <div id="panel-more" class="panel" hidden>
         <div class="panel-head">
+          <h2>More</h2>
+          <p class="muted small">Polls, stats, postseason, and account actions</p>
+        </div>
+        <div class="more-grid">
+          <button type="button" class="more-card" data-goto="top25">
+            <strong>Top 25</strong>
+            <span class="muted small">Sim poll rankings</span>
+          </button>
+          <button type="button" class="more-card" data-goto="stats">
+            <strong>Season stats</strong>
+            <span class="muted small">Passing · rushing · receiving</span>
+          </button>
+          <button type="button" class="more-card" data-goto="postseason">
+            <strong>Postseason</strong>
+            <span class="muted small">CFP field · bowls</span>
+          </button>
+          <button type="button" class="more-card" data-goto="recap">
+            <strong>Recap</strong>
+            <span class="muted small">End-of-season summary</span>
+          </button>
+          <button type="button" class="more-card" data-goto="history">
+            <strong>History</strong>
+            <span class="muted small">Past seasons</span>
+          </button>
+        </div>
+        <div class="more-actions">
+          <button type="button" class="btn btn-ghost" id="btnChangeTeam">Change team</button>
+          <button type="button" class="btn btn-ghost danger" id="btnReset">Reset season</button>
+          <button type="button" class="btn btn-ghost danger" id="btnFullReset">Full Reset</button>
+        </div>
+      </div>
+
+      <!-- Secondary panels (opened from More) -->
+      <div id="panel-top25" class="panel" hidden>
+        <div class="panel-head panel-back-head">
+          <button type="button" class="btn btn-ghost btn-back" data-back-more>← More</button>
           <h2>Sim Top 25</h2>
-          <p class="muted small">Weights win%, P4/ND conference strength, quality wins, and SOS — margins are dampened. See README.</p>
+          <p class="muted small">Weights win%, P4/ND conference strength, quality wins, and SOS.</p>
         </div>
         <div id="top25Table"></div>
       </div>
 
       <div id="panel-stats" class="panel" hidden>
-        <div class="panel-head">
+        <div class="panel-head panel-back-head">
+          <button type="button" class="btn btn-ghost btn-back" data-back-more>← More</button>
           <h2>Season stats</h2>
-          <p class="muted small">Season totals (Yds, TD) · class year on every row · gold/silver/bronze medals only on FBS leaders.</p>
+          <p class="muted small">Season totals · class year · medals on FBS leaders.</p>
         </div>
         <div id="seasonStats"></div>
       </div>
 
       <div id="panel-postseason" class="panel" hidden>
+        <div class="panel-head panel-back-head">
+          <button type="button" class="btn btn-ghost btn-back" data-back-more>← More</button>
+        </div>
         <div id="postseasonPanel" class="box-empty">Finish the regular season to unlock the postseason.</div>
       </div>
 
       <div id="panel-recap" class="panel" hidden>
+        <div class="panel-head panel-back-head">
+          <button type="button" class="btn btn-ghost btn-back" data-back-more>← More</button>
+        </div>
         <div class="box-empty">Complete the postseason to see your end-of-season recap.</div>
       </div>
 
       <div id="panel-history" class="panel" hidden>
-        <div class="panel-head">
+        <div class="panel-head panel-back-head">
+          <button type="button" class="btn btn-ghost btn-back" data-back-more>← More</button>
           <h2>Season history</h2>
-          <p class="muted small">Archived seasons for your school(s). Start next season from Recap to save the current year.</p>
+          <p class="muted small">Archived seasons. Start next season from Recap to save the current year.</p>
         </div>
         <div id="historyPanel" class="box-empty">No history yet.</div>
       </div>
@@ -151,7 +193,7 @@
             <strong id="shopCoinBalance">0</strong>
             <span class="coin-label">coins</span>
           </div>
-          <button type="button" class="btn btn-ghost" id="btnShopBack">Back to recap</button>
+          <button type="button" class="btn btn-ghost" id="btnShopBack">Back</button>
           <button type="button" class="btn btn-primary" id="btnShopStartSeason">Start next season</button>
         </div>
       </div>
@@ -167,9 +209,9 @@
             <div id="shopGoalsList" class="goals-list"></div>
           </div>
           <div class="shop-card">
-            <h3>Your purchases</h3>
+            <h3>Your roster</h3>
             <div id="shopOwnedList" class="owned-list muted small">None yet.</div>
-            <p class="muted small shop-note">Purchases insert at <strong>#1 depth</strong> for that position on <em>your</em> team only. Future Recruiting mode will share this engine.</p>
+            <p class="muted small shop-note">Purchases insert at <strong>#1 depth</strong> for that position on <em>your</em> team only.</p>
           </div>
         </aside>
         <div class="shop-main">
@@ -198,8 +240,7 @@
   </main>
 
   <footer class="footer">
-    <span>Schedules, rosters &amp; logos via ESPN public APIs · ratings seeded from AP Top 25 · local only · auto-saves in this browser</span>
-    <button type="button" class="btn btn-ghost danger" id="btnFullReset">Full Reset</button>
+    <span>Schedules, rosters &amp; logos via ESPN · TeamCrafters CFB27 ratings · local auto-save</span>
   </footer>
 
   <div id="toast" class="toast" hidden></div>
