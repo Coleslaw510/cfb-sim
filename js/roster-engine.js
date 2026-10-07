@@ -26,9 +26,10 @@
   }
 
   function costForOvr(ovr) {
-    // Cheaper shop: after ~3 solid seasons you can buy well above 76 OVR.
+    // Mid-tier shop: OVR 99 ≈ 800 (between old ~1270 and the brief ~440 cut).
+    // Earnable over a few solid seasons; not day-one trivial with starting coins.
     const x = Math.max(0, Number(ovr) - 39);
-    return Math.round(8 + x * x * 0.12);
+    return Math.round(8 + x * x * 0.22);
   }
 
   function cloneRoster(roster) {

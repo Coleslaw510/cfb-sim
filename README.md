@@ -206,7 +206,7 @@ Open the **All-Time Shop** from the **main season screen** (**Browse All-Time Sh
 ### Shop catalog
 - Real historical CFB players only (no invented names), browsable by school and position.
 - Coverage: all current FBS schools; **dozens** of legends for Power programs + Notre Dame; solid G5 sets; lighter lists elsewhere (~1,300+ players total — see `data/alltime-players.json`). Iowa has deep post-2000 skill + elite OL coverage for Hawkeye fans.
-- Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(8 + (ovr-39)² × 0.12)` (e.g. OVR 80 ≈ 210, OVR 85 ≈ 262, OVR 90 ≈ 320, OVR 99 ≈ 440).
+- Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(8 + (ovr-39)² × 0.22)` (e.g. OVR 76 ≈ 309, OVR 85 ≈ 474, OVR 90 ≈ 580, OVR 99 ≈ 800).
 
 ### Purchase behavior
 - Buying a player adds them to **your** team's roster only (ESPN rosters remain the default for every other school).

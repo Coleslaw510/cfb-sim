@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def cost_for_ovr(ovr: int) -> int:
     x = max(0, int(ovr) - 39)
-    return int(round(8 + (x ** 2) * 0.12))
+    return int(round(8 + (x ** 2) * 0.22))
 
 def make_id(slug: str, name: str) -> str:
     s = (
@@ -945,7 +945,7 @@ def build():
         "generatedBy": "scripts/build_alltime_catalog.py",
         "notes": "Real historical CFB players only. OVR is video-game style (40-99). Cost scales with OVR.",
         "positions": ["QB","RB","WR","TE","OL","DL","LB","DB","K","P"],
-        "costFormula": "round(8 + (ovr-39)^2 * 0.12)",
+        "costFormula": "round(8 + (ovr-39)^2 * 0.22)",
         "playerCount": len(players),
         "teamCount": len(teams_index),
         "teams": teams_index,
