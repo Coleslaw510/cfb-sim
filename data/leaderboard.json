@@ -1,5 +1,74 @@
 {
   "version": 1,
-  "updatedAt": null,
-  "entries": []
+  "updatedAt": "2026-10-07T16:48:12.071862+00:00",
+  "entries": [
+    {
+      "id": "2294-2026-seed1",
+      "fingerprint": "seediowa2026a",
+      "submittedAt": "2026-10-07T16:50:00Z",
+      "coachName": "Cole",
+      "teamId": "2294",
+      "teamName": "Iowa",
+      "teamFullName": "Iowa Hawkeyes",
+      "teamAbbr": "IOWA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2294.png",
+      "conference": "Big Ten",
+      "year": 2026,
+      "record": {
+        "w": 10,
+        "l": 3
+      },
+      "confRecord": {
+        "w": 6,
+        "l": 3
+      },
+      "finalRank": 14,
+      "bowlResult": "Won Music City Bowl",
+      "summary": "Best win: #9 Oregon (27-24)",
+      "teamOvr": 84,
+      "offense": 76,
+      "defense": 90,
+      "shopBuys": [
+        {
+          "id": "demo-wirfs",
+          "name": "Tristan Wirfs",
+          "pos": "OL",
+          "ovr": 96
+        }
+      ],
+      "keyPlayers": [
+        {
+          "name": "Starter QB",
+          "pos": "QB",
+          "ovr": 82,
+          "src": "roster"
+        },
+        {
+          "name": "Tristan Wirfs",
+          "pos": "OL",
+          "ovr": 96,
+          "src": "alltime"
+        }
+      ],
+      "schedule": [
+        {
+          "week": 1,
+          "label": "Wk 1",
+          "opp": "Illinois",
+          "home": true,
+          "result": "W",
+          "score": "21-17"
+        },
+        {
+          "week": "PS",
+          "label": "Music City Bowl",
+          "opp": "Tennessee",
+          "home": false,
+          "result": "W",
+          "score": "24-20"
+        }
+      ],
+      "score": 2228
+    }
+  ]
 }
