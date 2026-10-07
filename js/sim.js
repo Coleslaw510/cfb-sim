@@ -81,12 +81,55 @@
   }
 
   /**
-   * Expected team points for modern FBS scoring (~28 PPG league average).
+   * Expected team points for modern FBS scoring (~27 PPG league average).
+   * Slightly under the prior ~29 PPG / ~58 totals tune — not a return to low-scoring.
    * Ratings in this dataset center near ~60, not 50.
    */
   function expectedPoints(off, def, homeBoost) {
-    const base = 24.8 + (off - 60) * 0.50 - (def - 60) * 0.42 + homeBoost;
-    return clamp(base, 10, 56);
+    const base = 23.4 + (off - 60) * 0.47 - (def - 60) * 0.40 + homeBoost;
+    return clamp(base, 10, 54);
+  }
+
+
+  /**
+   * Realistic college football overtime.
+   * Each OT period both teams get the same number of possessions (or 2-pt tries),
+   * so you cannot "lose by 10 in OT" from unequal period counts.
+   */
+  function simulateCollegeOT(homeExp, awayExp, rng) {
+    function possessionPoints(offenseExp, defenseExp) {
+      // From the opponent 25: modern CFB OT scoring rates are high
+      const edge = (offenseExp - defenseExp) * 0.012;
+      const pScore = clamp(0.78 + edge, 0.55, 0.92);
+      const pTdGivenScore = clamp(0.62 + edge * 0.5, 0.45, 0.78);
+      const r = rng();
+      if (r < pScore * pTdGivenScore) return 7;
+      if (r < pScore) return 3;
+      return 0;
+    }
+    function twoPoint(offenseExp, defenseExp) {
+      const edge = (offenseExp - defenseExp) * 0.01;
+      return rng() < clamp(0.42 + edge, 0.28, 0.58) ? 2 : 0;
+    }
+    let home = 0;
+    let away = 0;
+    let period = 0;
+    while (period < 12) {
+      period += 1;
+      if (period <= 2) {
+        home += possessionPoints(homeExp, awayExp);
+        away += possessionPoints(awayExp, homeExp);
+      } else {
+        home += twoPoint(homeExp, awayExp);
+        away += twoPoint(awayExp, homeExp);
+      }
+      if (home !== away) break;
+    }
+    // Extremely rare safety: force a deciding 2-pt for home if still tied
+    if (home === away) {
+      home += 2;
+    }
+    return { home, away, periods: period };
   }
 
   function simulateGame(homeTeam, awayTeam, meta) {
@@ -95,7 +138,7 @@
     );
     const rng = mulberry32(seed);
 
-    const homeBoost = meta.neutralSite ? 0 : 2.5;
+    const homeBoost = meta.neutralSite ? 0 : 2.2;
     const homeExp = expectedPoints(homeTeam.offense, awayTeam.defense, homeBoost);
     const awayExp = expectedPoints(awayTeam.offense, homeTeam.defense, 0);
 
@@ -134,29 +177,29 @@
     let awayS = scoreFromDrives(awayExp, awayDrives);
 
     // Avoid ultra-low combined totals that feel pre-spread-era
-    if (homeS.pts + awayS.pts < 24) {
+    if (homeS.pts + awayS.pts < 21) {
       if (rng() < 0.5) homeS.pts += 7;
       else awayS.pts += 7;
     }
 
+    // College OT: equal possessions each period from the opponent ~25.
+    // Periods 1–2: possession → TD (7) / FG (3) / no score (0).
+    // Period 3+: alternating 2-point tries only (0 or 2). Margins stay small.
     let ot = false;
-    while (homeS.pts === awayS.pts) {
+    let otPeriods = 0;
+    if (homeS.pts === awayS.pts) {
       ot = true;
-      if (rng() < 0.55) homeS.pts += 7;
-      else awayS.pts += 3;
-      if (rng() < 0.55) awayS.pts += 7;
-      else homeS.pts += 3;
-      if (homeS.pts === awayS.pts) {
-        if (rng() < 0.5) homeS.pts += 3;
-        else awayS.pts += 3;
-      }
+      const otResult = simulateCollegeOT(homeExp, awayExp, rng);
+      homeS.pts += otResult.home;
+      awayS.pts += otResult.away;
+      otPeriods = otResult.periods;
     }
 
     function yardsBundle(pts, off, def, isHome) {
       // Modern FBS lean pass-first but still allows grind-it-out / option looks
       const passShare = clamp(0.58 + (rng() - 0.5) * 0.22 + (off - 60) * 0.0015, 0.44, 0.74);
       const totalOff = clamp(
-        370 + (off - def) * 3.6 + (pts - 28) * 6.8 + (rng() - 0.5) * 75,
+        370 + (off - def) * 3.6 + (pts - 27) * 6.8 + (rng() - 0.5) * 75,
         190,
         700
       );
@@ -174,7 +217,7 @@
       }
       // Target ~6.5–8.0 YPA for average/good offenses; derive attempts from yards
       const ypa = clamp(
-        6.5 + (off - 60) * 0.04 + (pts - 28) * 0.03 + (rng() - 0.5) * 1.5,
+        6.5 + (off - 60) * 0.04 + (pts - 27) * 0.03 + (rng() - 0.5) * 1.5,
         4.5,
         11.8
       );
@@ -254,6 +297,7 @@
       round: meta.round || null,
       neutralSite: !!meta.neutralSite,
       ot,
+      otPeriods,
       homeId: homeTeam.id,
       awayId: awayTeam.id,
       homeScore: homeS.pts,

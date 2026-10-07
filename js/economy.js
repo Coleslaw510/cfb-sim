@@ -4,22 +4,23 @@
 
   /** Static goal definitions shown in the UI. Amounts are coin payouts. */
   const GOAL_DEFS = [
-    { id: "wins-6", label: "Win 6+ games (bowl eligible)", amount: 50, group: "Regular season" },
-    { id: "wins-8", label: "Win 8+ games", amount: 100, group: "Regular season" },
-    { id: "wins-10", label: "Win 10+ games", amount: 200, group: "Regular season" },
-    { id: "wins-11", label: "Win 11+ games", amount: 150, group: "Regular season" },
-    { id: "wins-12", label: "Win 12+ games", amount: 200, group: "Regular season" },
-    { id: "undefeated-rs", label: "Undefeated regular season (min 8 games)", amount: 400, group: "Regular season" },
-    { id: "conf-title", label: "Win conference championship", amount: 250, group: "Conference" },
-    { id: "conf-appear", label: "Reach conference championship", amount: 75, group: "Conference" },
-    { id: "bowl-win", label: "Win a non-CFP bowl", amount: 150, group: "Bowls" },
-    { id: "bowl-appear", label: "Make a non-CFP bowl", amount: 50, group: "Bowls" },
-    { id: "cfp-berth", label: "Make the CFP field", amount: 200, group: "Playoff" },
-    { id: "cfp-win", label: "Win a CFP game (per win)", amount: 150, group: "Playoff", perEvent: true },
-    { id: "natty", label: "Win CFP National Championship", amount: 1000, group: "Playoff" },
-    { id: "top25", label: "Finish Top 25", amount: 100, group: "Poll" },
-    { id: "top10", label: "Finish Top 10", amount: 200, group: "Poll" },
-    { id: "top1", label: "Finish #1 in sim poll", amount: 300, group: "Poll" },
+    { id: "wins-6", label: "Win 6+ games (bowl eligible)", amount: 75, group: "Regular season" },
+    { id: "wins-8", label: "Win 8+ games", amount: 140, group: "Regular season" },
+    { id: "wins-10", label: "Win 10+ games", amount: 280, group: "Regular season" },
+    { id: "wins-11", label: "Win 11+ games", amount: 200, group: "Regular season" },
+    { id: "wins-12", label: "Win 12+ games", amount: 260, group: "Regular season" },
+    { id: "undefeated-rs", label: "Undefeated regular season (min 8 games)", amount: 500, group: "Regular season" },
+    { id: "conf-title", label: "Win conference championship", amount: 320, group: "Conference" },
+    { id: "conf-appear", label: "Reach conference championship", amount: 100, group: "Conference" },
+    { id: "bowl-win", label: "Win a non-CFP bowl", amount: 200, group: "Bowls" },
+    { id: "bowl-appear", label: "Make a non-CFP bowl", amount: 70, group: "Bowls" },
+    { id: "cfp-berth", label: "Make the CFP field", amount: 260, group: "Playoff" },
+    { id: "cfp-win", label: "Win a CFP game (per win)", amount: 200, group: "Playoff", perEvent: true },
+    { id: "natty", label: "Win CFP National Championship", amount: 1200, group: "Playoff" },
+    { id: "top25", label: "Finish Top 25", amount: 140, group: "Poll" },
+    { id: "top10", label: "Finish Top 10", amount: 260, group: "Poll" },
+    { id: "top1", label: "Finish #1 in sim poll", amount: 400, group: "Poll" },
+    { id: "beat-top25", label: "Beat a Top 25 team (per win)", amount: 60, group: "Quality wins", perEvent: true },
   ];
 
   function winnerId(box) {
@@ -31,12 +32,13 @@
 
   /**
    * Evaluate which goals were earned for a completed season.
-   * Returns [{id, label, amount, detail?}, ...] (cfp-win may appear multiple times collapsed with count).
+   * Returns [{id, label, amount, detail?}, ...] (cfp-win / beat-top25 may collapse with count).
    */
   function evaluateSeasonGoals(ctx) {
     const teamId = ctx.teamId;
     const results = ctx.results || [];
     const recap = ctx.recap || {};
+    const top25WinCount = Number(ctx.top25WinCount) || 0;
     const earned = [];
 
     const allRec = recap.record || { w: 0, l: 0 };
@@ -107,6 +109,14 @@
     if (rank && rank <= 10) add(byId["top10"]);
     if (rank === 1) add(byId["top1"]);
 
+    if (top25WinCount > 0) {
+      add(
+        byId["beat-top25"],
+        top25WinCount + " win" + (top25WinCount > 1 ? "s" : ""),
+        top25WinCount
+      );
+    }
+
     return earned;
   }
 
@@ -118,6 +128,7 @@
     GOAL_DEFS,
     evaluateSeasonGoals,
     payoutTotal,
-    STARTING_COINS: 100,
+    STARTING_COINS: 250,
+    BEAT_TOP25_BONUS: 60,
   };
 })(window);

@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "cfb-sim-2026-v7";
-  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5", "cfb-sim-2026-v6"];
+  const STORAGE_KEY = "cfb-sim-2026-v8";
+  const LEGACY_KEYS = ["cfb-sim-2026-v1", "cfb-sim-2026-v2", "cfb-sim-2026-v3", "cfb-sim-2026-v4", "cfb-sim-2026-v5", "cfb-sim-2026-v6", "cfb-sim-2026-v7"];
   let DATA = null;
 
   function createFreshState() {
@@ -21,6 +21,8 @@
       ownedPlayerIds: [], // catalog ids permanently on user's program
       claimedGoals: {}, // { [seasonYear]: [goalId, ...] } — prevents double-pay
       lastSeasonPayout: null, // { year, total, lines }
+      // Preseason non-conference edits: { [week]: { opponentId, homeAway } }
+      nonConfOverrides: {},
     };
   }
 
@@ -76,6 +78,7 @@
           state.coins = typeof CFBEconomy !== "undefined" ? CFBEconomy.STARTING_COINS : 100;
         }
         if (!state.lastSeasonPayout) state.lastSeasonPayout = null;
+        if (!state.nonConfOverrides || typeof state.nonConfOverrides !== "object") state.nonConfOverrides = {};
         if (migrated) {
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
         }
@@ -132,16 +135,189 @@
     return state.generatedSchedule;
   }
 
-  function activeSchedules() {
+  function baseSchedules() {
     if (!usesGeneratedSchedule()) return DATA.schedules;
     const pack = ensureGeneratedSchedule();
     return (pack && pack.schedules) || DATA.schedules;
   }
 
-  function activeGames() {
+  function baseGames() {
     if (!usesGeneratedSchedule()) return DATA.games;
     const pack = ensureGeneratedSchedule();
     return (pack && pack.games) || DATA.games;
+  }
+
+  /** Conference game if both sides share the user's conference (or flagged isConf). */
+  function isConferenceGameFor(teamId, g) {
+    if (!g) return false;
+    if (g.isConf) return true;
+    const me = DATA.teams[teamId];
+    if (!me) return false;
+    const oppId = g.opponentId != null
+      ? g.opponentId
+      : (g.homeId === teamId ? g.awayId : g.homeId);
+    const opp = DATA.teams[oppId];
+    if (!opp || !opp.isFbs || !me.isFbs) return false;
+    if (me.conferenceId === "18" || opp.conferenceId === "18") return false; // independents
+    return String(me.conferenceId) === String(opp.conferenceId);
+  }
+
+  function cloneGame(g) {
+    return Object.assign({}, g);
+  }
+
+  /**
+   * Apply user's preseason non-conference opponent swaps onto schedules + games.
+   * Old opponent gets a bye that week; new opponent drops their same-week game (bye).
+   */
+  function applyNonConfOverrides(schedulesIn, gamesIn) {
+    const overrides = state.nonConfOverrides || {};
+    const keys = Object.keys(overrides);
+    if (!keys.length || !state.teamId) {
+      return { schedules: schedulesIn, games: gamesIn };
+    }
+    const tid = String(state.teamId);
+    const schedules = {};
+    for (const id of Object.keys(schedulesIn)) {
+      schedules[id] = (schedulesIn[id] || []).map(cloneGame);
+    }
+    let games = (gamesIn || []).map(cloneGame);
+
+    function removeEventEverywhere(eventId) {
+      for (const id of Object.keys(schedules)) {
+        schedules[id] = (schedules[id] || []).filter((x) => String(x.eventId) !== String(eventId));
+      }
+      games = games.filter((x) => String(x.eventId) !== String(eventId));
+    }
+
+    function pushTeamView(sched, eventId, date, week, homeAway, neutralSite, homeId, awayId, oppId, name, shortName) {
+      const opp = DATA.teams[oppId] || {};
+      sched.push({
+        eventId,
+        date,
+        week,
+        homeAway,
+        neutralSite: !!neutralSite,
+        opponentId: oppId,
+        opponentName: opp.name || "Opponent",
+        opponentAbbr: opp.abbreviation || "OPP",
+        homeId,
+        awayId,
+        name,
+        shortName,
+        generated: true,
+        isConf: false,
+      });
+    }
+
+    // Overrides keyed by week string for user's non-conf slots
+    for (const weekKey of keys) {
+      const ov = overrides[weekKey];
+      if (!ov || !ov.opponentId) continue;
+      const week = Number(weekKey);
+      if (!Number.isFinite(week)) continue;
+      const newOppId = String(ov.opponentId);
+      if (newOppId === tid) continue;
+
+      const mineList = schedules[tid] || [];
+      const mineIdx = mineList.findIndex(
+        (x) => Number(x.week) === week && !isConferenceGameFor(tid, x)
+      );
+      if (mineIdx < 0) continue;
+      const orig = mineList[mineIdx];
+      const homeAway = ov.homeAway || orig.homeAway || "home";
+      const neutralSite = !!ov.neutralSite;
+
+      // Remove user's original matchup that week
+      removeEventEverywhere(orig.eventId);
+
+      // Drop new opponent's same-week game if any
+      const newOppSched = schedules[newOppId] || (schedules[newOppId] = []);
+      const conflict = newOppSched.find((x) => Number(x.week) === week);
+      if (conflict) removeEventEverywhere(conflict.eventId);
+
+      const homeId = homeAway === "away" ? newOppId : tid;
+      const awayId = homeAway === "away" ? tid : newOppId;
+      const homeT = DATA.teams[homeId] || {};
+      const awayT = DATA.teams[awayId] || {};
+      const name = (awayT.name || "Away") + (neutralSite ? " vs " : " at ") + (homeT.name || "Home");
+      const shortName =
+        (awayT.abbreviation || "AWAY") + (neutralSite ? " vs " : " @ ") + (homeT.abbreviation || "HOME");
+      const newEventId = "ncedit-" + tid + "-w" + week + "-" + newOppId;
+      const date = orig.date;
+
+      games.push({
+        eventId: newEventId,
+        date,
+        week,
+        homeId,
+        awayId,
+        neutralSite,
+        name,
+        shortName,
+        homeIsFbs: !!(DATA.teams[homeId] && DATA.teams[homeId].isFbs),
+        awayIsFbs: !!(DATA.teams[awayId] && DATA.teams[awayId].isFbs),
+        generated: true,
+        isConf: false,
+        nonConfEdit: true,
+      });
+
+      if (!schedules[tid]) schedules[tid] = [];
+      pushTeamView(
+        schedules[tid],
+        newEventId,
+        date,
+        week,
+        homeAway === "away" ? "away" : "home",
+        neutralSite,
+        homeId,
+        awayId,
+        newOppId,
+        name,
+        shortName
+      );
+      if (DATA.teams[newOppId] && DATA.teams[newOppId].isFbs) {
+        if (!schedules[newOppId]) schedules[newOppId] = [];
+        pushTeamView(
+          schedules[newOppId],
+          newEventId,
+          date,
+          week,
+          homeAway === "away" ? "home" : "away",
+          neutralSite,
+          homeId,
+          awayId,
+          tid,
+          name,
+          shortName
+        );
+      }
+      schedules[tid].sort((a, b) => a.week - b.week || String(a.date).localeCompare(String(b.date)));
+      if (schedules[newOppId]) {
+        schedules[newOppId].sort((a, b) => a.week - b.week || String(a.date).localeCompare(String(b.date)));
+      }
+    }
+
+    games.sort((a, b) => a.week - b.week || String(a.date).localeCompare(String(b.date)));
+    return { schedules, games };
+  }
+
+  function activeSchedules() {
+    const base = baseSchedules();
+    return applyNonConfOverrides(base, baseGames()).schedules;
+  }
+
+  function activeGames() {
+    const baseS = baseSchedules();
+    return applyNonConfOverrides(baseS, baseGames()).games;
+  }
+
+  function isPreseasonEditable() {
+    return (
+      !!state.teamId &&
+      state.phase === "regular" &&
+      Object.keys(state.results || {}).length === 0
+    );
   }
 
   function classBadge(c) {
@@ -282,6 +458,47 @@
     return state.phase === "complete" || isPreseasonShopWindow();
   }
 
+  /** Wins vs opponents ranked in the Top 25 entering that game (AP seed preseason). */
+  function countTop25Wins(teamId) {
+    let n = 0;
+    const histCache = {};
+    function ranksEnteringWeek(week) {
+      if (histCache[week]) return histCache[week];
+      const prior = resultsBeforeWeek(week);
+      if (!prior.length) {
+        const map = {};
+        for (const id of DATA.fbsTeamIds) {
+          const ap = DATA.teams[id].apRank;
+          if (ap && ap <= 25) map[id] = ap;
+        }
+        histCache[week] = map;
+        return map;
+      }
+      histCache[week] = pollRankMap(prior, week);
+      return histCache[week];
+    }
+    for (const g of resultsList()) {
+      if (g.homeId !== teamId && g.awayId !== teamId) continue;
+      const mine = g.homeId === teamId ? g.homeScore : g.awayScore;
+      const theirs = g.homeId === teamId ? g.awayScore : g.homeScore;
+      if (mine <= theirs) continue;
+      const oppId = g.homeId === teamId ? g.awayId : g.homeId;
+      let rank = null;
+      if (g.round || g.bowl) {
+        // Postseason: use latest poll at end of regular season
+        rank = pollRankMap(
+          resultsList().filter((x) => !x.round && !x.bowl),
+          maxWeek() + 1
+        )[oppId] || null;
+      } else {
+        const w = Number(g.week) || 1;
+        rank = ranksEnteringWeek(w)[oppId] || null;
+      }
+      if (rank && rank <= 25) n += 1;
+    }
+    return n;
+  }
+
   function awardSeasonCoinsIfNeeded() {
     if (state.phase !== "complete" || !state.teamId) return null;
     const year = String(state.seasonYear || 2026);
@@ -295,6 +512,7 @@
       teamId: state.teamId,
       results: resultsList(),
       recap,
+      top25WinCount: countTop25Wins(state.teamId),
     });
     const total = CFBEconomy.payoutTotal(lines);
     state.coins = (state.coins || 0) + total;
@@ -480,14 +698,13 @@
   function renderSchedule() {
     const sched = (activeSchedules()[state.teamId] || []).slice().sort((a, b) => a.week - b.week || a.date.localeCompare(b.date));
     const next = state.currentWeek;
-    // Cache latest ranks once for upcoming games + historical polls by week
+    const myT = effectiveTeam(state.teamId) || team(state.teamId);
     const latestRanks = latestPollRanks();
     const histCache = {};
     function ranksEnteringWeek(week) {
       if (histCache[week]) return histCache[week];
       const prior = resultsBeforeWeek(week);
       if (!prior.length) {
-        // Preseason: AP ranks
         const map = {};
         for (const id of DATA.fbsTeamIds) {
           const ap = DATA.teams[id].apRank;
@@ -499,78 +716,277 @@
       histCache[week] = pollRankMap(prior, week);
       return histCache[week];
     }
-    const rows = sched.map((g) => {
-      const opp = team(g.opponentId) || {
-        name: g.opponentName,
-        logo: `https://a.espncdn.com/i/teamlogos/ncaa/500/${g.opponentId}.png`,
-        abbreviation: g.opponentAbbr,
-        shortName: g.opponentName,
+
+    function myRankForGame(g, played) {
+      if (played) {
+        const r = ranksEnteringWeek(g.week)[state.teamId];
+        return r && r <= 25 ? r : null;
+      }
+      let r = latestRanks[state.teamId] || null;
+      if (r == null && resultsList().length === 0) r = (myT && myT.apRank) || null;
+      return r && r <= 25 ? r : null;
+    }
+
+    function buildRow(g, opts) {
+      opts = opts || {};
+      const isPs = !!opts.postseason;
+      const oppId = isPs
+        ? (g.homeId === state.teamId ? g.awayId : g.homeId)
+        : g.opponentId;
+      const opp = team(oppId) || {
+        name: g.opponentName || "TBD",
+        logo: oppId ? `https://a.espncdn.com/i/teamlogos/ncaa/500/${oppId}.png` : "",
+        abbreviation: g.opponentAbbr || "TBD",
+        shortName: g.opponentName || "TBD",
+        overall: null,
       };
       const res = state.results[g.eventId];
-      const isCurrent = state.phase === "regular" && g.week === next && !res;
-      const where = g.neutralSite ? "Neutral" : g.homeAway === "home" ? "Home" : "Away";
+      const isCurrent = opts.isCurrent;
+      const where = isPs
+        ? escapeHtml(g.bowl || g.label || "Postseason")
+        : (g.neutralSite ? "Neutral" : g.homeAway === "home" ? "Home" : "Away") + " · " + formatDate(g.date);
       let resultHtml = '<span class="result pending">—</span>';
       if (res) {
         const mine = res.homeId === state.teamId ? res.homeScore : res.awayScore;
         const theirs = res.homeId === state.teamId ? res.awayScore : res.homeScore;
         const win = mine > theirs;
-        resultHtml = `<span class="result ${win ? "win" : "loss"}">${win ? "W" : "L"} ${mine}–${theirs}</span>`;
+        const otTag = res.ot ? " OT" : "";
+        resultHtml = `<span class="result ${win ? "win" : "loss"}">${win ? "W" : "L"} ${mine}–${theirs}${otTag}</span>`;
       }
-      const prefix = g.homeAway === "home" ? "vs" : "@";
-      let rank;
+      const prefix = isPs
+        ? (g.homeId === state.teamId ? "vs" : "@")
+        : (g.homeAway === "home" ? "vs" : "@");
+      let oppRank;
       if (res) {
-        rank = ranksEnteringWeek(g.week)[g.opponentId] || null;
+        if (isPs) oppRank = latestRanks[oppId] || null;
+        else oppRank = ranksEnteringWeek(g.week)[oppId] || null;
       } else {
-        rank = latestRanks[g.opponentId] || null;
-        if (rank == null && resultsList().length === 0) {
-          rank = (opp.apRank) || null;
-        }
-        if (rank && rank > 25) rank = null;
+        oppRank = latestRanks[oppId] || null;
+        if (oppRank == null && resultsList().length === 0) oppRank = (opp.apRank) || null;
+        if (oppRank && oppRank > 25) oppRank = null;
       }
+      const myRank = myRankForGame(isPs ? { week: next } : g, !!res);
+      const oppEff = effectiveTeam(oppId) || opp;
+      const myOvr = myT && myT.overall != null ? myT.overall : "—";
+      const oppOvr = oppEff && oppEff.overall != null ? oppEff.overall : "—";
+      const weekLabel = isPs ? escapeHtml(shortRoundTag(g.round)) : ("W" + g.week);
+      const confLock = !isPs && isConferenceGameFor(state.teamId, g);
+      const editable = !isPs && isPreseasonEditable() && !confLock;
+      const rankMine = myRank ? `<span class="rank-badge" title="Your rank">#${myRank}</span>` : "";
+      const rankOpp = oppRank ? `<span class="rank-badge" title="Opponent rank">#${oppRank}</span>` : "";
+      const pin = opts.pinned ? " pinned-next" : "";
+      const pinLabel = opts.pinned ? `<div class="next-game-label">${isPs ? "Your next game" : "Next up"}</div>` : "";
       return `
-        <div class="game-row ${res ? "played" : ""} ${isCurrent ? "current" : ""}" data-event="${g.eventId}">
-          <div class="week-num">W${g.week}</div>
-          <div class="opp">
-            <img src="${opp.logo}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
+        <div class="game-row ${res ? "played" : ""} ${isCurrent ? "current" : ""}${isPs ? " postseason-row" : ""}${pin}${confLock ? " conf-locked" : ""}" data-event="${g.eventId}" data-opp="${oppId || ""}">
+          ${pinLabel}
+          <div class="week-num">${weekLabel}</div>
+          <div class="opp team-link" data-team-id="${oppId || ""}" title="View roster">
+            <span class="logo-wrap">
+              ${rankOpp ? `<span class="logo-rank">${oppRank}</span>` : ""}
+              <img src="${opp.logo || ""}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
+            </span>
             <div>
-              <div class="who">${formatOppLabel(prefix, opp, rank)}</div>
-              <div class="where">${where} · ${formatDate(g.date)}</div>
+              <div class="who">${prefix} ${rankOpp}${escapeHtml(opp.shortName || opp.name || "Opponent")}</div>
+              <div class="where">${where}${confLock ? " · Conf" : ""}${editable ? " · Non-conf" : ""}</div>
+              <div class="matchup-ovrs">${rankMine}<span class="ovr-mini">You ${myOvr}</span> · <span class="ovr-mini">Opp ${oppOvr}</span></div>
             </div>
           </div>
           ${resultHtml}
         </div>`;
-    });
-
-    // Append user's postseason games to schedule (use latest poll ranks)
-    const psGames = postseasonGamesForUser();
-    for (const g of psGames) {
-      const oppId = g.homeId === state.teamId ? g.awayId : g.homeId;
-      const opp = team(oppId) || { name: "TBD", logo: "", shortName: "TBD" };
-      const res = state.results[g.eventId];
-      let resultHtml = '<span class="result pending">—</span>';
-      if (res) {
-        const mine = res.homeId === state.teamId ? res.homeScore : res.awayScore;
-        const theirs = res.homeId === state.teamId ? res.awayScore : res.homeScore;
-        const win = mine > theirs;
-        resultHtml = `<span class="result ${win ? "win" : "loss"}">${win ? "W" : "L"} ${mine}–${theirs}</span>`;
-      }
-      const ha = g.homeId === state.teamId ? "vs" : "@";
-      const rank = (oppId && latestRanks[oppId]) || null;
-      rows.push(`
-        <div class="game-row ${res ? "played" : ""} postseason-row" data-event="${g.eventId}">
-          <div class="week-num">${escapeHtml(shortRoundTag(g.round))}</div>
-          <div class="opp">
-            <img src="${opp.logo || ""}" alt="" width="28" height="28" onerror="this.style.visibility='hidden'" />
-            <div>
-              <div class="who">${formatOppLabel(ha, opp, rank)}</div>
-              <div class="where">${escapeHtml(g.bowl || g.label || "Postseason")}</div>
-            </div>
-          </div>
-          ${resultHtml}
-        </div>`);
     }
 
-    $("#scheduleList").innerHTML = rows.join("") || '<div class="empty">No schedule found for this team.</div>';
+    // Identify next/current game to pin (regular or postseason)
+    let pinKey = null;
+    let pinIsPs = false;
+    if (state.phase === "regular") {
+      const cur = sched.find((g) => g.week === next && !state.results[g.eventId]);
+      if (cur) { pinKey = cur.eventId; pinIsPs = false; }
+      else {
+        const upcoming = sched.find((g) => !state.results[g.eventId] && g.week >= next);
+        if (upcoming) { pinKey = upcoming.eventId; pinIsPs = false; }
+      }
+    }
+    const psGames = postseasonGamesForUser();
+    if (!pinKey && psGames.length) {
+      const nextPs = psGames.find((g) => !state.results[g.eventId]);
+      if (nextPs) { pinKey = nextPs.eventId; pinIsPs = true; }
+      else if (state.phase !== "regular" && state.phase !== "complete") {
+        // fall back to last ps game if all played but still in postseason
+        pinKey = psGames[psGames.length - 1].eventId;
+        pinIsPs = true;
+      }
+    }
+
+    const rows = [];
+    // Pinned next game at top
+    if (pinKey) {
+      if (pinIsPs) {
+        const g = psGames.find((x) => x.eventId === pinKey);
+        if (g) rows.push(buildRow(g, { postseason: true, pinned: true, isCurrent: !state.results[g.eventId] }));
+      } else {
+        const g = sched.find((x) => x.eventId === pinKey);
+        if (g) {
+          rows.push(buildRow(g, {
+            pinned: true,
+            isCurrent: state.phase === "regular" && g.week === next && !state.results[g.eventId],
+          }));
+        }
+      }
+    }
+
+    for (const g of sched) {
+      if (pinKey && !pinIsPs && g.eventId === pinKey) continue; // already pinned
+      const isCurrent = state.phase === "regular" && g.week === next && !state.results[g.eventId];
+      rows.push(buildRow(g, { isCurrent }));
+    }
+    for (const g of psGames) {
+      if (pinKey && pinIsPs && g.eventId === pinKey) continue;
+      rows.push(buildRow(g, { postseason: true }));
+    }
+
+    let editHtml = "";
+    if (isPreseasonEditable()) {
+      editHtml = renderNonConfEditor(sched);
+    }
+
+    $("#scheduleList").innerHTML =
+      editHtml +
+      (rows.join("") || '<div class="empty">No schedule found for this team.</div>');
+
+    // Click opponent → depth chart
+    $("#scheduleList").querySelectorAll(".team-link[data-team-id]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = el.getAttribute("data-team-id");
+        if (id) openTeamRoster(id);
+      });
+    });
+    // Non-conf editor binds
+    const applyBtn = $("#btnApplyNonConf");
+    if (applyBtn) {
+      applyBtn.addEventListener("click", () => applyNonConfEditorForm());
+    }
+    const resetBtn = $("#btnResetNonConf");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        state.nonConfOverrides = {};
+        save();
+        renderSchedule();
+        toast("Non-conference schedule restored");
+      });
+    }
+  }
+
+  function renderNonConfEditor(sched) {
+    // Always edit against base slate non-conf weeks; show current (possibly overridden) opponent selected
+    const baseNonConf = (baseSchedules()[state.teamId] || [])
+      .filter((g) => !isConferenceGameFor(state.teamId, g))
+      .slice()
+      .sort((a, b) => a.week - b.week);
+    if (!baseNonConf.length) {
+      return `<div class="nonconf-editor"><div class="panel-head"><h2>Non-conference schedule</h2><p class="muted small">No editable non-conference games on this slate.</p></div></div>`;
+    }
+    const currentByWeek = {};
+    (sched || []).forEach((g) => {
+      if (!isConferenceGameFor(state.teamId, g)) currentByWeek[g.week] = g;
+    });
+    const myConf = (team(state.teamId) || {}).conferenceId;
+    const fbsOpts = DATA.fbsTeamIds
+      .filter((id) => id !== state.teamId)
+      .map((id) => DATA.teams[id])
+      .filter(Boolean)
+      .sort((a, b) => (a.shortName || a.name).localeCompare(b.shortName || b.name));
+
+    const slots = baseNonConf.map((baseG) => {
+      const cur = currentByWeek[baseG.week] || baseG;
+      const options = fbsOpts
+        .map((t) => {
+          const sameConf = myConf && t.conferenceId === myConf && myConf !== "18";
+          if (sameConf) return ""; // can't pick conference foes as "non-conf"
+          const sel = String(t.id) === String(cur.opponentId) ? "selected" : "";
+          const ovr = t.overall != null ? ` · OVR ${t.overall}` : "";
+          const ap = t.apRank ? ` · AP #${t.apRank}` : "";
+          return `<option value="${t.id}" ${sel}>${escapeHtml(t.shortName || t.name)}${ovr}${ap}</option>`;
+        })
+        .join("");
+      const ha = cur.homeAway === "away" ? "away" : "home";
+      return `<div class="nonconf-slot" data-week="${baseG.week}">
+        <div class="nonconf-week">Week ${baseG.week}</div>
+        <select class="nonconf-opp" aria-label="Non-conference opponent week ${baseG.week}">${options}</select>
+        <select class="nonconf-ha" aria-label="Home or away">
+          <option value="home" ${ha === "home" ? "selected" : ""}>Home</option>
+          <option value="away" ${ha === "away" ? "selected" : ""}>Away</option>
+        </select>
+      </div>`;
+    }).join("");
+
+    const nEdits = Object.keys(state.nonConfOverrides || {}).length;
+    return `<div class="nonconf-editor">
+      <div class="panel-head">
+        <h2>Edit non-conference schedule</h2>
+        <p class="muted small">Preseason only · conference games stay locked. Pick tougher non-con for Top 25 win bonuses.</p>
+      </div>
+      <div class="nonconf-slots">${slots}</div>
+      <div class="nonconf-actions">
+        <button type="button" class="btn btn-primary" id="btnApplyNonConf">Save non-con matchups</button>
+        <button type="button" class="btn btn-ghost" id="btnResetNonConf" ${nEdits ? "" : "disabled"}>Reset non-con</button>
+      </div>
+    </div>`;
+  }
+
+  function applyNonConfEditorForm() {
+    if (!isPreseasonEditable()) {
+      toast("Non-con edits only in preseason");
+      return;
+    }
+    const overrides = {};
+    const baseList = baseSchedules()[state.teamId] || [];
+    $$(".nonconf-slot").forEach((slot) => {
+      const week = Number(slot.getAttribute("data-week"));
+      const oppSel = slot.querySelector(".nonconf-opp");
+      const haSel = slot.querySelector(".nonconf-ha");
+      if (!Number.isFinite(week) || !oppSel) return;
+      const base = baseList.find((g) => Number(g.week) === week && !isConferenceGameFor(state.teamId, g));
+      if (!base) return;
+      const opponentId = oppSel.value;
+      const homeAway = haSel ? haSel.value : "home";
+      const baseHa = base.homeAway === "away" ? "away" : "home";
+      if (String(opponentId) !== String(base.opponentId) || homeAway !== baseHa) {
+        overrides[String(week)] = { opponentId, homeAway, neutralSite: false };
+      }
+    });
+    state.nonConfOverrides = overrides;
+    save();
+    renderSchedule();
+    const n = Object.keys(overrides).length;
+    toast(n ? `Saved ${n} non-con edit${n > 1 ? "s" : ""}` : "Non-con matches base slate");
+  }
+
+  async function openTeamRoster(teamId) {
+    if (!teamId || !DATA.teams[teamId]) {
+      toast("No roster for that team");
+      return;
+    }
+    const sel = $("#depthTeamSelect");
+    if (sel) {
+      // Ensure option exists
+      let found = false;
+      for (const opt of sel.options) {
+        if (opt.value === String(teamId)) { found = true; break; }
+      }
+      if (!found) {
+        const t = DATA.teams[teamId];
+        const opt = document.createElement("option");
+        opt.value = teamId;
+        opt.textContent = t.shortName || t.name;
+        sel.appendChild(opt);
+      }
+      sel.value = String(teamId);
+    }
+    switchTab("depth");
+    await renderDepth();
+    const t = effectiveTeam(teamId) || team(teamId);
+    toast(`${t.shortName || t.name} · OVR ${t.overall != null ? t.overall : "—"}`);
   }
 
   function shortRoundTag(round) {
@@ -628,7 +1044,7 @@
     const midParts = [];
     if (res.bowl || res.label) midParts.push(res.bowl || res.label);
     else midParts.push("Week " + res.week);
-    if (res.ot) midParts.push("OT");
+    if (res.ot) midParts.push(res.otPeriods && res.otPeriods > 1 ? res.otPeriods + "OT" : "OT");
     if (res.neutralSite) midParts.push("Neutral");
     const mid = midParts.join(" · ");
 
@@ -718,7 +1134,7 @@
           ${rows
             .map((row, i) => {
               const mine = row.m.id === state.teamId ? "mine" : "";
-              return `<tr class="${mine}">
+              return `<tr class="${mine} team-row-link" data-team-id="${row.m.id}" title="View roster">
                 <td>${i + 1}</td>
                 <td><div class="team-cell"><img src="${row.m.logo}" alt="" onerror="this.style.visibility='hidden'" /><span>${escapeHtml(row.m.shortName || row.m.name)}</span></div></td>
                 <td>${row.conf.w}–${row.conf.l}</td>
@@ -730,6 +1146,9 @@
             .join("")}
         </tbody>
       </table>`;
+    $("#standingsTable").querySelectorAll("[data-team-id]").forEach((el) => {
+      el.addEventListener("click", () => openTeamRoster(el.getAttribute("data-team-id")));
+    });
   }
 
   function currentPollWeek() {
@@ -753,7 +1172,7 @@
             .map((row) => {
               const t = team(row.id);
               const mine = row.id === state.teamId ? "mine" : "";
-              return `<tr class="${mine}">
+              return `<tr class="${mine} team-row-link" data-team-id="${row.id}" title="View roster">
                 <td>${row.rank}</td>
                 <td><div class="team-cell"><img src="${t.logo}" alt="" onerror="this.style.visibility='hidden'" /><span>${escapeHtml(t.shortName || t.name)}</span></div></td>
                 <td>${row.rec.w}–${row.rec.l}</td>
@@ -764,6 +1183,9 @@
             .join("")}
         </tbody>
       </table>`;
+    $("#top25Table").querySelectorAll("[data-team-id]").forEach((el) => {
+      el.addEventListener("click", () => openTeamRoster(el.getAttribute("data-team-id")));
+    });
   }
 
   function fmtRate(n, digits) {
@@ -893,17 +1315,28 @@
     const sel = $("#depthTeamSelect");
     if (!sel.options.length) {
       const t = team(state.teamId);
-      sel.innerHTML = `<option value="${t.id}">${escapeHtml(t.shortName || t.name)} (yours)</option>`;
-      // Add upcoming / recent opponents
       const sched = activeSchedules()[state.teamId] || [];
-      const seen = new Set([t.id]);
+      const oppIds = new Set();
       for (const g of sched) {
-        if (seen.has(g.opponentId)) continue;
-        const opp = team(g.opponentId);
-        if (!opp || !opp.isFbs) continue;
-        seen.add(g.opponentId);
-        sel.innerHTML += `<option value="${g.opponentId}">${escapeHtml(opp.shortName || opp.name)}</option>`;
+        if (g.opponentId) oppIds.add(String(g.opponentId));
       }
+      const opts = [];
+      opts.push(`<option value="${t.id}">${escapeHtml(t.shortName || t.name)} (yours)</option>`);
+      // Opponents first
+      for (const oid of oppIds) {
+        if (oid === String(t.id)) continue;
+        const opp = team(oid);
+        if (!opp || !opp.isFbs) continue;
+        opts.push(`<option value="${opp.id}">${escapeHtml(opp.shortName || opp.name)} · OVR ${opp.overall != null ? opp.overall : "—"}</option>`);
+      }
+      opts.push(`<option disabled>────────</option>`);
+      for (const id of DATA.fbsTeamIds) {
+        if (id === t.id || oppIds.has(String(id))) continue;
+        const o = DATA.teams[id];
+        if (!o) continue;
+        opts.push(`<option value="${o.id}">${escapeHtml(o.shortName || o.name)} · OVR ${o.overall != null ? o.overall : "—"}</option>`);
+      }
+      sel.innerHTML = opts.join("");
     }
     const tid = sel.value || state.teamId;
     const roster = await effectiveRoster(tid);
@@ -919,7 +1352,7 @@
         <img src="${t.logo}" alt="" width="36" height="36" onerror="this.style.visibility='hidden'" />
         <div>
           <strong>${escapeHtml(t.shortName || t.name)} depth chart</strong>
-          <div class="muted small">${roster.players.length} players · ${(roster.ovrSource||"").indexOf("teamcrafters")>=0?"CFB27 OVRs":"ESPN base"}${(roster.players||[]).filter(p=>p.src==="alltime").length ? " + " + (roster.players||[]).filter(p=>p.src==="alltime").length + " all-time" : ""}${(roster.players||[]).some(p=>p.ovr!=null) ? " · depth by OVR" : ""}${String(tid)===String(state.teamId) && (state.ownedPlayerIds||[]).length ? " · shop active" : ""}</div>
+          <div class="muted small">Team OVR <strong>${(effectiveTeam(tid)||t).overall != null ? (effectiveTeam(tid)||t).overall : "—"}</strong> · Off ${(effectiveTeam(tid)||t).offense != null ? (effectiveTeam(tid)||t).offense : "—"} · Def ${(effectiveTeam(tid)||t).defense != null ? (effectiveTeam(tid)||t).defense : "—"} · ${roster.players.length} players · ${(roster.ovrSource||"").indexOf("teamcrafters")>=0?"CFB27 OVRs":"ESPN base"}${(roster.players||[]).filter(p=>p.src==="alltime").length ? " + " + (roster.players||[]).filter(p=>p.src==="alltime").length + " all-time" : ""}${(roster.players||[]).some(p=>p.ovr!=null) ? " · depth by OVR" : ""}${String(tid)===String(state.teamId) && (state.ownedPlayerIds||[]).length ? " · shop active" : ""}</div>
         </div>
       </div>
       <div class="depth-grid">
@@ -1476,6 +1909,7 @@
     state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + nextYear);
     state.phase = "regular";
     state.postseason = null;
+    state.nonConfOverrides = {};
     state.generatedSchedule = null; // force fresh slate for the new year
     if (nextYear > 2026) ensureGeneratedSchedule();
     const sel = $("#depthTeamSelect");
@@ -1795,6 +2229,7 @@
     state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|" + keepYear);
     state.phase = "regular";
     state.postseason = null;
+    state.nonConfOverrides = {};
     // reset depth select
     const sel = $("#depthTeamSelect");
     if (sel) sel.innerHTML = "";
@@ -1815,6 +2250,7 @@
     state.seasonSeed = (Date.now() % 1e9) ^ CFBSim.hashSeed(id + "|reset|" + (state.seasonYear || 2026));
     state.phase = "regular";
     state.postseason = null;
+    state.nonConfOverrides = {};
     const sel = $("#depthTeamSelect");
     if (sel) sel.innerHTML = "";
     save();
@@ -1881,7 +2317,15 @@
     DATA = await res.json();
     try {
       const ar = await fetch("data/alltime-players.json");
-      if (ar.ok) ALLTIME = await ar.json();
+      if (ar.ok) {
+        ALLTIME = await ar.json();
+        // Keep catalog costs in sync with roster-engine formula
+        if (ALLTIME && Array.isArray(ALLTIME.players) && typeof CFBRosterEngine !== "undefined") {
+          ALLTIME.players.forEach((p) => {
+            if (p && p.ovr != null) p.cost = CFBRosterEngine.costForOvr(p.ovr);
+          });
+        }
+      }
     } catch (e) {
       console.warn("alltime catalog", e);
       ALLTIME = null;

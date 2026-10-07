@@ -15,7 +15,7 @@ python3 -m http.server 8765
 
 Open [http://localhost:8765](http://localhost:8765).
 
-Progress is stored in `localStorage` (`cfb-sim-2026-v7`). Older `v1`–`v6` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year, rolls forward with the same rosters/ratings, and **generates a new regular-season schedule** (season 1 keeps the real 2026 ESPN slate).
+Progress is stored in `localStorage` (`cfb-sim-2026-v8`). Older `v1`–`v7` saves are migrated when possible (else cleared). Use **Reset season** to clear the current year (History stays). **Start next season** archives the completed year, rolls forward with the same rosters/ratings, and **generates a new regular-season schedule** (season 1 keeps the real 2026 ESPN slate).
 
 ## Features
 
@@ -24,15 +24,17 @@ Progress is stored in `localStorage` (`cfb-sim-2026-v7`). Older `v1`–`v6` save
 3. **Real ESPN rosters** + **TeamCrafters CFB27 overalls (40–99)** on a depth chart sorted by OVR (QB / RB / WR / TE / OL / DL / LB / DB / K / P)
 4. **Sim next week** — simulates **all** FBS regular-season games that week
 5. Box score with **real player names** for pass / rush / rec leaders (from depth chart)
-6. Schedule rows show opponent **Top 25 rank badges** (poll as of that week / latest for upcoming)
-7. Conference standings + retuned sim Top 25
-8. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
-9. **Postseason:** conference championships → 12-team CFP → other bowls → championship
-10. End-of-season recap + **coin payouts** for season goals
-11. **All-Time Shop** on the main season screen (browse anytime; buy in pre-season / between seasons) and team picker — real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
-12. **Start next season** (same ESPN base rosters + owned shop players, new generated schedule)
-13. **History** tab — archived years (record, conf, rank, bowl/CFP)
-14. Persist / reset (History, coins, and owned shop players preserved)
+6. Schedule pins **your next/current game** at the top (including bowls/CFP); matchups show **both teams’ OVRs** and **rank badges** (little number by logo)
+7. Click an opponent (or standings / Top 25 row) → that team’s **depth chart / OVRs / team overall**
+8. **Preseason:** edit **non-conference** matchups (conference games locked)
+9. Conference standings + retuned sim Top 25
+10. **Season stats** — **season totals** (Yds, TD, …); gold/silver/bronze medals **only on FBS leaders**; team tables use plain 1–2–3; class year (FR/SO/JR/SR/RS) on rows
+11. **Postseason:** conference championships → 12-team CFP → other bowls → championship
+12. End-of-season recap + **coin payouts** for season goals (incl. **beat Top 25** bonus)
+13. **All-Time Shop** on the main season screen (browse anytime; buy in pre-season / between seasons) and team picker — real historical CFB players (by team/position, OVR 40–99, coin cost) onto your depth chart
+14. **Start next season** (same ESPN base rosters + owned shop players, new generated schedule)
+15. **History** tab — archived years (record, conf, rank, bowl/CFP)
+16. Persist / reset (History, coins, and owned shop players preserved)
 
 ## Data sources
 
@@ -69,9 +71,9 @@ All-Time Shop purchases still apply a capped soft boost on top of these ratings.
 
 Each game is a **drive-based probabilistic model**:
 
-1. Expected points from offense vs opponent defense (+ home-field ≈ 2.4 pts unless neutral).
-2. ~10–13 drives per team → TD / FG / turnover / punt outcomes.
-3. OT if tied.
+1. Expected points from offense vs opponent defense (+ home-field ≈ 2.2 pts unless neutral). Tuned for modern FBS (~27 PPG / ~55 combined) — slightly under the prior ~29/58 peak.
+2. ~11–14 drives per team → TD / FG / turnover / punt outcomes.
+3. **College OT** if tied: equal possessions each period from the ~25 (FG/TD); from 3OT onward, 2-point tries only. Margins stay realistic (no “lost by 10 in OT”).
 4. Box stats (pass/rush yards, C/A, turnovers, 3rd downs, TOP) derived from score + rating differential with seeded noise.
 5. Skill leaders use **depth-chart names** when a roster is loaded (QB1 / RB1–2 / WR1–2 / TE); otherwise generic placeholders.
 
@@ -172,7 +174,7 @@ The **Season stats** tab shows:
 - Your team’s cumulative leaders as **season totals** (Yds, TD, C/A, …) with class year
 - FBS leaders boards ranked by **total yards** (min-game qualifiers); **medals only here**
 
-Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v7`) — no separate counter to reset beyond **Reset season**.
+Stats are derived from stored box scores in `localStorage` (`cfb-sim-2026-v8`) — no separate counter to reset beyond **Reset season**.
 
 
 ## Multi-year schedule generation
@@ -196,15 +198,15 @@ Rosters are **not** aged yet; class year is stored and displayed for future adva
 Open the **All-Time Shop** from the **main season screen** (**Browse All-Time Shop** / topbar **All-Time Shop**), the **team picker**, or **between seasons** (after the recap, before **Start next season**). Mid-season opens are browse-only; purchases stay available in pre-season (starting coins) and between seasons. Between-season flow is unchanged.
 
 ### Coins
-- Starting balance: **100** coins on a new save (enough to browse and pick up cheaper catalog players before year one).
-- Season goals pay out once per completed year (stored under `claimedGoals` so they cannot double-pay).
-- Goals include win thresholds (6/8/10/11/12+), undefeated regular season, conference championship appearance/win, bowl appearance/win, CFP berth, each CFP win, national title, and finishing Top 25 / Top 10 / #1.
-- Balance and owned players persist across seasons in `localStorage` (`cfb-sim-2026-v7`).
+- Starting balance: **250** coins on a new save.
+- Season goals pay out once per completed year (stored under `claimedGoals` so they cannot double-pay). Payouts are raised so **after ~3 seasons** you can buy well above a 76 OVR.
+- Goals include win thresholds (6/8/10/11/12+), undefeated regular season, conference championship appearance/win, bowl appearance/win, CFP berth, each CFP win, national title, finishing Top 25 / Top 10 / #1, and **+60 coins per win vs a Top 25 team** (rank entering that week / AP seed).
+- Balance and owned players persist across seasons in `localStorage` (`cfb-sim-2026-v8`).
 
 ### Shop catalog
 - Real historical CFB players only (no invented names), browsable by school and position.
 - Coverage: all current FBS schools; **dozens** of legends for Power programs + Notre Dame; solid G5 sets; lighter lists elsewhere (~1,300+ players total — see `data/alltime-players.json`). Iowa has deep post-2000 skill + elite OL coverage for Hawkeye fans.
-- Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(10 + (ovr-39)² × 0.35)` (e.g. OVR 70 ≈ 346, OVR 85 ≈ 751, OVR 99 ≈ 1270).
+- Each player has video-game-style **OVR 40–99** and a **coin cost** scaled to OVR: `round(8 + (ovr-39)² × 0.12)` (e.g. OVR 80 ≈ 210, OVR 85 ≈ 262, OVR 90 ≈ 320, OVR 99 ≈ 440).
 
 ### Purchase behavior
 - Buying a player adds them to **your** team's roster only (ESPN rosters remain the default for every other school).

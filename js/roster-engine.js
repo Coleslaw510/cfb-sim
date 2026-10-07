@@ -26,8 +26,9 @@
   }
 
   function costForOvr(ovr) {
+    // Cheaper shop: after ~3 solid seasons you can buy well above 76 OVR.
     const x = Math.max(0, Number(ovr) - 39);
-    return Math.round(10 + x * x * 0.35);
+    return Math.round(8 + x * x * 0.12);
   }
 
   function cloneRoster(roster) {

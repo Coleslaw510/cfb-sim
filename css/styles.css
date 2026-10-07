@@ -649,3 +649,89 @@ table.rank-table tr.mine { background: #f3f7ff; }
   align-items: center;
   margin-top: 14px;
 }
+
+
+/* Pinned next game on schedule */
+.game-row.pinned-next {
+  order: -1;
+  background: #eef4ff;
+  border: 1px solid #c9daf8;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  position: relative;
+  padding-top: 28px;
+}
+.next-game-label {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.matchup-ovrs {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ovr-mini { font-variant-numeric: tabular-nums; }
+.logo-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.logo-rank {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  z-index: 1;
+}
+.team-link { cursor: pointer; }
+.team-link:hover .who { color: var(--accent); }
+.team-row-link { cursor: pointer; }
+.team-row-link:hover { background: #f3f7ff; }
+.game-row.conf-locked .where { font-style: italic; }
+
+/* Non-conference preseason editor */
+.nonconf-editor {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px 14px;
+  margin-bottom: 14px;
+  background: #fafbfc;
+}
+.nonconf-slots { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 10px; }
+.nonconf-slot {
+  display: grid;
+  grid-template-columns: 64px 1fr 90px;
+  gap: 8px;
+  align-items: center;
+}
+.nonconf-week { font-size: 12px; font-weight: 700; color: var(--muted); }
+.nonconf-slot select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.nonconf-actions { display: flex; gap: 8px; flex-wrap: wrap; }
